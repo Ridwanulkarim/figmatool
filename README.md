@@ -1,6 +1,9 @@
 # VectorCraft - Figma-Style Vector Design Tool
 
+🌐 **Live Application Demo**: [https://figmatool.vercel.app/](https://figmatool.vercel.app/)
+
 VectorCraft is a browser-based **Figma-inspired vector design editor** built with React, Vite, Tailwind CSS, and SVG rendering. It is designed to demonstrate advanced frontend engineering architecture, state management, complex geometry transformations, command-based undo/redo history, object & grid snapping, nested grouping, and multi-format export.
+
 
 ---
 
