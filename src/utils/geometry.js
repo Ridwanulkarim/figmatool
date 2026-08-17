@@ -27,7 +27,7 @@ export function getBoundingBox(element, sceneGraphMap = new Map()) {
 
   if (element.type === 'group' && element.children) {
     const childBoxes = element.children
-      .map(childId => sceneGraphMap.get(childId) || element.childrenObjects?.find(c => c.id === childId))
+      .map(childId => sceneGraphMap.get(childId))
       .filter(Boolean)
       .map(child => getBoundingBox(child, sceneGraphMap));
 
@@ -74,7 +74,6 @@ export function getMultiSelectionBoundingBox(elements) {
       maxX = Math.max(maxX, box.x + box.width);
       maxY = Math.max(maxY, box.y + box.height);
     } else {
-      // Calculate 4 rotated corners
       const corners = getTransformedCorners(el);
       for (const c of corners) {
         minX = Math.min(minX, c.x);
@@ -102,10 +101,10 @@ export function getTransformedCorners(element) {
   const cy = y + height / 2;
 
   const corners = [
-    { x, y }, // TL
-    { x: x + width, y }, // TR
-    { x: x + width, y: y + height }, // BR
-    { x, y: y + height }, // BL
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
   ];
 
   if (!rotation) return corners;
@@ -113,7 +112,6 @@ export function getTransformedCorners(element) {
 }
 
 /**
- * Handle resizing through negative width/height edge flipping
  * Normalizes element geometry so width & height are always positive.
  */
 export function normalizeGeometry({ x, y, width, height }) {
@@ -135,13 +133,11 @@ export function normalizeGeometry({ x, y, width, height }) {
 }
 
 /**
- * Calculate resized dimensions given active handle ('nw', 'n', 'ne', etc.), delta dx/dy,
- * aspect ratio constraint, and rotation.
+ * Calculate resized dimensions given active handle, delta dx/dy, aspect ratio, and rotation.
  */
 export function calculateResize({ element, handle, dx, dy, keepAspectRatio = false, minSize = 5 }) {
   const rotation = element.rotation || 0;
   
-  // Convert dx, dy from world to local rotated coordinate space if element is rotated
   let localDx = dx;
   let localDy = dy;
   if (rotation) {
@@ -192,14 +188,12 @@ export function calculateResize({ element, handle, dx, dy, keepAspectRatio = fal
       break;
   }
 
-  // Preserve aspect ratio if requested
   if (keepAspectRatio && originalAspect) {
     if (['e', 'w'].includes(handle)) {
       height = width / originalAspect;
     } else if (['n', 's'].includes(handle)) {
       width = height * originalAspect;
     } else {
-      // Corner handle
       const newAspect = Math.abs(width / (height || 1));
       if (newAspect > originalAspect) {
         height = width / originalAspect;
@@ -209,10 +203,7 @@ export function calculateResize({ element, handle, dx, dy, keepAspectRatio = fal
     }
   }
 
-  // Handle negative dimensions seamlessly
   const normalized = normalizeGeometry({ x, y, width, height });
-
-  // Enforce minimum dimension
   normalized.width = Math.max(minSize, normalized.width);
   normalized.height = Math.max(minSize, normalized.height);
 
@@ -220,24 +211,36 @@ export function calculateResize({ element, handle, dx, dy, keepAspectRatio = fal
 }
 
 /**
- * Calculate rotation angle from element center to pointer position
+ * Calculate absolute pointer angle from element center
  */
-export function calculateRotation(element, pointerCanvasPos, snapShift = false) {
-  const cx = element.x + element.width / 2;
-  const cy = element.y + element.height / 2;
-
-  const dx = pointerCanvasPos.x - cx;
-  const dy = pointerCanvasPos.y - cy;
-
-  // Math.atan2 returns angle in radians from positive X axis (3 o'clock)
-  // Standard rotation starts at 12 o'clock (-90 deg offset)
+export function calculatePointerAngle(elementCenter, pointerCanvasPos) {
+  const dx = pointerCanvasPos.x - elementCenter.x;
+  const dy = pointerCanvasPos.y - elementCenter.y;
   let angle = radToDeg(Math.atan2(dy, dx)) + 90;
   if (angle < 0) angle += 360;
+  return angle;
+}
+
+/**
+ * Calculate smooth rotation delta without jumping on initial handle click
+ */
+export function calculateRotationDelta({
+  elementCenter,
+  currentPointerPos,
+  initialPointerAngle,
+  initialElementRotation = 0,
+  snapShift = false,
+}) {
+  const currentAngle = calculatePointerAngle(elementCenter, currentPointerPos);
+  let delta = currentAngle - initialPointerAngle;
+
+  let newRotation = initialElementRotation + delta;
+  if (newRotation < 0) newRotation += 360;
+  newRotation = newRotation % 360;
 
   if (snapShift) {
-    // Snap to nearest 15 degree increment when Shift key is pressed
-    angle = Math.round(angle / 15) * 15;
+    newRotation = Math.round(newRotation / 15) * 15;
   }
 
-  return Math.round(angle % 360);
+  return Math.round(newRotation % 360);
 }

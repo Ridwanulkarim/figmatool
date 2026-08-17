@@ -2,9 +2,10 @@ import React, { useRef } from 'react';
 
 /**
  * Pure SVG Scene Graph Renderer
+ * Supports Option B Flat Scene Graph with parentId links & nested groups
  */
 function RenderElement({ element, sceneGraphMap }) {
-  if (element.hidden) return null;
+  if (!element || element.hidden) return null;
 
   const {
     id,
@@ -128,6 +129,9 @@ export default function SVGCanvas({
   const { panX = 0, panY = 0, zoom = 1 } = viewport;
   const isCanvasEmpty = sceneGraph.length === 0;
 
+  // Render top-level elements (elements with no parentId)
+  const topLevelElements = sceneGraph.filter(el => !el.parentId);
+
   return (
     <div
       className="relative flex-1 bg-gray-950 overflow-hidden select-none"
@@ -143,7 +147,6 @@ export default function SVGCanvas({
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
-          {/* Subtle Canvas Grid Pattern */}
           <pattern
             id="canvas-grid-pattern"
             width={20 * zoom}
@@ -168,12 +171,12 @@ export default function SVGCanvas({
 
         {/* Transformed Scene Viewport */}
         <g transform={`translate(${panX}, ${panY}) scale(${zoom})`}>
-          {/* Scene Elements */}
-          {sceneGraph.map((el) => (
+          {/* Top Level Scene Elements */}
+          {topLevelElements.map((el) => (
             <RenderElement key={el.id} element={el} sceneGraphMap={sceneGraphMap} />
           ))}
 
-          {/* Interactive Overlays (Selection Boxes, Resize Handles, Marquee, In-Place Editor) */}
+          {/* Interactive Overlays */}
           {children}
 
           {/* Smart Alignment Guides Overlay */}

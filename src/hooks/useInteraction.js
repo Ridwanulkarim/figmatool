@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { screenToCanvas } from '../utils/coordinates.js';
 import { hitTestPoint, hitTestRectangle } from '../utils/hitTesting.js';
-import { calculateResize, calculateRotation } from '../utils/geometry.js';
+import { calculateResize, calculatePointerAngle, calculateRotationDelta } from '../utils/geometry.js';
 import { calculateSnapping } from '../utils/snapping.js';
 import { TransformElementsCommand, AddElementsCommand } from '../utils/commands.js';
 
@@ -29,7 +29,9 @@ export function useInteraction({
   const [alignmentGuides, setAlignmentGuides] = useState([]);
   const [cursorCanvasPos, setCursorCanvasPos] = useState({ x: 0, y: 0 });
 
+  // Initial interaction state snapshots for smooth rotation & history
   const initialDragStateRef = useRef([]);
+  const initialRotationStateRef = useRef({ initialPointerAngle: 0, initialElementRotation: 0 });
 
   const spawnShape = useCallback((type, canvasPos) => {
     const shapeCount = sceneGraph.filter(el => el.type === type).length + 1;
@@ -40,6 +42,7 @@ export function useInteraction({
       id: `${type}-${Date.now()}`,
       type,
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${shapeCount}`,
+      parentId: null,
       x: Math.round(canvasPos.x - defaultW / 2),
       y: Math.round(canvasPos.y - defaultH / 2),
       width: defaultW,
@@ -226,7 +229,19 @@ export function useInteraction({
       const target = initialDragStateRef.current[0];
       if (!target) return;
 
-      const rotation = calculateRotation(target, canvasPt, e.shiftKey);
+      const center = {
+        x: target.x + target.width / 2,
+        y: target.y + target.height / 2,
+      };
+
+      const rotation = calculateRotationDelta({
+        elementCenter: center,
+        currentPointerPos: canvasPt,
+        initialPointerAngle: initialRotationStateRef.current.initialPointerAngle,
+        initialElementRotation: initialRotationStateRef.current.initialElementRotation,
+        snapShift: e.shiftKey,
+      });
+
       setSceneGraph(prev =>
         prev.map(el => (el.id === target.id ? { ...el, rotation } : el))
       );
@@ -256,6 +271,7 @@ export function useInteraction({
     setMarqueeBox(null);
     setAlignmentGuides([]);
     initialDragStateRef.current = [];
+    initialRotationStateRef.current = { initialPointerAngle: 0, initialElementRotation: 0 };
   }, [interactionMode, sceneGraph, selectedIds, historyManagerRef, triggerHistoryUpdate]);
 
   const handleHandlePointerDown = useCallback((e, handleId, selectedElements) => {
@@ -272,6 +288,19 @@ export function useInteraction({
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
     setInteractionMode('rotate');
     setDragStartPoint(canvasPt);
+
+    const target = selectedElements[0];
+    if (target) {
+      const center = {
+        x: target.x + target.width / 2,
+        y: target.y + target.height / 2,
+      };
+      const initialAngle = calculatePointerAngle(center, canvasPt);
+      initialRotationStateRef.current = {
+        initialPointerAngle: initialAngle,
+        initialElementRotation: target.rotation || 0,
+      };
+    }
     initialDragStateRef.current = selectedElements.map(el => ({ ...el }));
   }, [viewport]);
 

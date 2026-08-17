@@ -30,8 +30,8 @@ export default function LayersPanel({
   const [editingName, setEditingName] = useState('');
   const [expandedGroups, setExpandedGroups] = useState(new Set());
 
-  // Render layer list in reverse order (top of list = highest z-index)
-  const displayLayers = [...sceneGraph].reverse();
+  // Render top-level layers in reverse z-index order
+  const topLevelLayers = [...sceneGraph.filter(el => !el.parentId)].reverse();
 
   const toggleGroupExpand = (groupId, e) => {
     e.stopPropagation();
@@ -72,6 +72,102 @@ export default function LayersPanel({
     }
   };
 
+  const renderLayerItem = (el, depth = 0) => {
+    const isSelected = selectedIds.includes(el.id);
+    const isGroup = el.type === 'group';
+    const isExpanded = expandedGroups.has(el.id);
+
+    return (
+      <div key={el.id} className="flex flex-col">
+        <div
+          onClick={(e) => onSelectLayer(el.id, e.shiftKey)}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          className={`group h-8 pr-2 flex items-center justify-between text-xs cursor-pointer transition-colors border-l-2 ${
+            isSelected
+              ? 'bg-indigo-600/20 border-indigo-500 text-white font-medium'
+              : 'border-transparent text-gray-300 hover:bg-gray-800/60'
+          }`}
+        >
+          <div className="flex items-center space-x-2 min-w-0 flex-1">
+            {isGroup ? (
+              <button
+                onClick={(e) => toggleGroupExpand(el.id, e)}
+                className="text-gray-500 hover:text-gray-200"
+              >
+                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+            ) : (
+              <span className="w-3" />
+            )}
+
+            {getElementIcon(el.type)}
+
+            {editingId === el.id ? (
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onBlur={() => handleCommitRename(el.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCommitRename(el.id);
+                  if (e.key === 'Escape') setEditingId(null);
+                }}
+                className="bg-gray-950 text-white px-1 py-0.5 rounded border border-indigo-500 outline-none text-xs w-28"
+                autoFocus
+              />
+            ) : (
+              <span
+                onDoubleClick={(e) => handleStartRename(el, e)}
+                className="truncate max-w-[110px]"
+                title="Double click to rename"
+              >
+                {el.name || `${el.type} ${el.id.slice(-3)}`}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleVisibility(el.id);
+              }}
+              className={`p-1 rounded ${
+                el.hidden ? 'text-amber-400 opacity-100' : 'text-gray-500 hover:text-gray-200'
+              }`}
+              title={el.hidden ? 'Show Layer' : 'Hide Layer'}
+            >
+              {el.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleLock(el.id);
+              }}
+              className={`p-1 rounded ${
+                el.locked ? 'text-amber-400 opacity-100' : 'text-gray-500 hover:text-gray-200'
+              }`}
+              title={el.locked ? 'Unlock Layer' : 'Lock Layer'}
+            >
+              {el.locked ? <Lock size={13} /> : <Unlock size={13} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Group Children sub-tree */}
+        {isGroup && isExpanded && el.children && (
+          <div className="flex flex-col">
+            {el.children.map(childId => {
+              const child = sceneGraph.find(c => c.id === childId);
+              return child ? renderLayerItem(child, depth + 1) : null;
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="w-60 bg-gray-900 border-r border-gray-800 flex flex-col h-full select-none z-10">
       {/* Header */}
@@ -81,7 +177,7 @@ export default function LayersPanel({
           <span>Layers</span>
         </div>
         <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">
-          {sceneGraph.length}
+          {topLevelLayers.length}
         </span>
       </div>
 
@@ -121,116 +217,10 @@ export default function LayersPanel({
 
       {/* Layers Tree */}
       <div className="flex-1 overflow-y-auto py-1">
-        {displayLayers.length === 0 ? (
+        {topLevelLayers.length === 0 ? (
           <div className="p-4 text-center text-xs text-gray-600">No layers in scene</div>
         ) : (
-          displayLayers.map((el) => {
-            const isSelected = selectedIds.includes(el.id);
-            const isGroup = el.type === 'group';
-            const isExpanded = expandedGroups.has(el.id);
-
-            return (
-              <div key={el.id} className="flex flex-col">
-                <div
-                  onClick={(e) => onSelectLayer(el.id, e.shiftKey)}
-                  className={`group h-8 px-2 flex items-center justify-between text-xs cursor-pointer transition-colors border-l-2 ${
-                    isSelected
-                      ? 'bg-indigo-600/20 border-indigo-500 text-white font-medium'
-                      : 'border-transparent text-gray-300 hover:bg-gray-800/60'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2 min-w-0 flex-1">
-                    {/* Group Expand Chevron */}
-                    {isGroup ? (
-                      <button
-                        onClick={(e) => toggleGroupExpand(el.id, e)}
-                        className="text-gray-500 hover:text-gray-200"
-                      >
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                      </button>
-                    ) : (
-                      <span className="w-3" />
-                    )}
-
-                    {getElementIcon(el.type)}
-
-                    {/* Editable Layer Name */}
-                    {editingId === el.id ? (
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onBlur={() => handleCommitRename(el.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCommitRename(el.id);
-                          if (e.key === 'Escape') setEditingId(null);
-                        }}
-                        className="bg-gray-950 text-white px-1 py-0.5 rounded border border-indigo-500 outline-none text-xs w-28"
-                        autoFocus
-                      />
-                    ) : (
-                      <span
-                        onDoubleClick={(e) => handleStartRename(el, e)}
-                        className="truncate max-w-[110px]"
-                        title="Double click to rename"
-                      >
-                        {el.name || `${el.type} ${el.id.slice(-3)}`}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Actions: Lock & Visibility */}
-                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleVisibility(el.id);
-                      }}
-                      className={`p-1 rounded ${
-                        el.hidden ? 'text-amber-400 opacity-100' : 'text-gray-500 hover:text-gray-200'
-                      }`}
-                      title={el.hidden ? 'Show Layer' : 'Hide Layer'}
-                    >
-                      {el.hidden ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleLock(el.id);
-                      }}
-                      className={`p-1 rounded ${
-                        el.locked ? 'text-amber-400 opacity-100' : 'text-gray-500 hover:text-gray-200'
-                      }`}
-                      title={el.locked ? 'Unlock Layer' : 'Lock Layer'}
-                    >
-                      {el.locked ? <Lock size={13} /> : <Unlock size={13} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Group Children sub-tree */}
-                {isGroup && isExpanded && el.children && (
-                  <div className="pl-6 bg-gray-950/40 border-l border-gray-800/50">
-                    {el.children.map(childId => {
-                      const child = sceneGraph.find(c => c.id === childId);
-                      if (!child) return null;
-                      return (
-                        <div
-                          key={child.id}
-                          onClick={(e) => onSelectLayer(child.id, e.shiftKey)}
-                          className="h-7 px-2 flex items-center space-x-2 text-xs text-gray-400 hover:bg-gray-800/40 cursor-pointer"
-                        >
-                          {getElementIcon(child.type)}
-                          <span className="truncate">{child.name}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
+          topLevelLayers.map(el => renderLayerItem(el, 0))
         )}
       </div>
     </div>

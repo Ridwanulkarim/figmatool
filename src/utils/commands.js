@@ -97,13 +97,20 @@ export class TransformElementsCommand extends Command {
 
 /**
  * Command for property updates (e.g. fill, stroke, opacity, text, font)
+ * Standardized using ES6 Map for previousValuesMap
  */
 export class UpdatePropertiesCommand extends Command {
   constructor(elementIds, changes, previousValuesMap) {
     super();
     this.elementIds = Array.isArray(elementIds) ? elementIds : [elementIds];
     this.changes = changes;
-    this.previousValuesMap = previousValuesMap; // Map of id -> previous properties object
+    
+    // Normalize to ES6 Map
+    if (previousValuesMap instanceof Map) {
+      this.previousValuesMap = previousValuesMap;
+    } else {
+      this.previousValuesMap = new Map(Object.entries(previousValuesMap || {}));
+    }
   }
 
   execute(sceneGraph) {
@@ -119,8 +126,8 @@ export class UpdatePropertiesCommand extends Command {
   undo(sceneGraph) {
     const idSet = new Set(this.elementIds);
     return sceneGraph.map(el => {
-      if (idSet.has(el.id) && this.previousValuesMap[el.id]) {
-        return { ...el, ...this.previousValuesMap[el.id] };
+      if (idSet.has(el.id) && this.previousValuesMap.has(el.id)) {
+        return { ...el, ...this.previousValuesMap.get(el.id) };
       }
       return el;
     });
@@ -128,7 +135,7 @@ export class UpdatePropertiesCommand extends Command {
 }
 
 /**
- * Command for Grouping elements
+ * Command for Grouping elements (Option B: Flat Scene Graph with parentId)
  */
 export class GroupElementsCommand extends Command {
   constructor(groupElement, childElements) {
@@ -139,24 +146,39 @@ export class GroupElementsCommand extends Command {
 
   execute(sceneGraph) {
     const childIds = new Set(this.childElements.map(c => c.id));
-    // Remove individual children from top-level and insert group object at location of top child
     const firstChildIndex = sceneGraph.findIndex(el => childIds.has(el.id));
-    const filtered = sceneGraph.filter(el => !childIds.has(el.id));
 
-    const insertIndex = firstChildIndex >= 0 ? Math.min(firstChildIndex, filtered.length) : filtered.length;
-    filtered.splice(insertIndex, 0, this.groupElement);
-    return filtered;
+    // Update parentId on child elements while retaining them in sceneGraph
+    const nextGraph = sceneGraph.map(el => {
+      if (childIds.has(el.id)) {
+        return { ...el, parentId: this.groupElement.id };
+      }
+      return el;
+    });
+
+    // Insert group object at position of top child
+    const insertIndex = firstChildIndex >= 0 ? firstChildIndex : nextGraph.length;
+    nextGraph.splice(insertIndex, 0, this.groupElement);
+    return nextGraph;
   }
 
   undo(sceneGraph) {
-    // Remove group element and restore individual children
-    const filtered = sceneGraph.filter(el => el.id !== this.groupElement.id);
-    return [...filtered, ...this.childElements];
+    const childIds = new Set(this.childElements.map(c => c.id));
+    
+    // Remove group element and clear parentId on children
+    return sceneGraph
+      .filter(el => el.id !== this.groupElement.id)
+      .map(el => {
+        if (childIds.has(el.id)) {
+          return { ...el, parentId: el.parentId === this.groupElement.id ? null : el.parentId };
+        }
+        return el;
+      });
   }
 }
 
 /**
- * Command for Ungrouping element
+ * Command for Ungrouping element (Option B: Flat Scene Graph with parentId)
  */
 export class UngroupElementsCommand extends Command {
   constructor(groupElement, childElements) {
@@ -166,22 +188,33 @@ export class UngroupElementsCommand extends Command {
   }
 
   execute(sceneGraph) {
-    const groupIndex = sceneGraph.findIndex(el => el.id === this.groupElement.id);
-    if (groupIndex === -1) return sceneGraph;
-
-    const next = [...sceneGraph];
-    next.splice(groupIndex, 1, ...this.childElements);
-    return next;
+    const childIds = new Set(this.childElements.map(c => c.id));
+    
+    // Remove group element and clear parentId on children
+    return sceneGraph
+      .filter(el => el.id !== this.groupElement.id)
+      .map(el => {
+        if (childIds.has(el.id)) {
+          return { ...el, parentId: null };
+        }
+        return el;
+      });
   }
 
   undo(sceneGraph) {
     const childIds = new Set(this.childElements.map(c => c.id));
-    const firstIndex = sceneGraph.findIndex(el => childIds.has(el.id));
-    const filtered = sceneGraph.filter(el => !childIds.has(el.id));
+    const firstChildIndex = sceneGraph.findIndex(el => childIds.has(el.id));
 
-    const insertIndex = firstIndex >= 0 ? Math.min(firstIndex, filtered.length) : filtered.length;
-    filtered.splice(insertIndex, 0, this.groupElement);
-    return filtered;
+    const nextGraph = sceneGraph.map(el => {
+      if (childIds.has(el.id)) {
+        return { ...el, parentId: this.groupElement.id };
+      }
+      return el;
+    });
+
+    const insertIndex = firstChildIndex >= 0 ? firstChildIndex : nextGraph.length;
+    nextGraph.splice(insertIndex, 0, this.groupElement);
+    return nextGraph;
   }
 }
 
@@ -219,7 +252,7 @@ export class HistoryManager {
     if (this.undoStack.length > this.maxHistory) {
       this.undoStack.shift();
     }
-    this.redoStack = []; // Clear redo stack on new operation
+    this.redoStack = [];
   }
 
   canUndo() {

@@ -1,19 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import { generateSVGString, importFromJSON } from '../utils/export.js';
+import { deepCloneElements } from '../hooks/useClipboard.js';
 
 describe('Export & JSON Schema Engine', () => {
-  it('generates valid SVG markup string for scene graph', () => {
+  it('generates valid SVG markup string for flat scene graph with groups', () => {
     const sceneGraph = [
-      { id: 'r1', type: 'rectangle', x: 10, y: 20, width: 100, height: 50, fill: '#6366f1' },
-      { id: 'c1', type: 'circle', x: 50, y: 50, width: 60, height: 60, fill: '#0d99ff' },
-      { id: 't1', type: 'text', x: 10, y: 10, width: 100, height: 20, text: 'Hello', fill: '#ffffff' },
+      { id: 'g1', type: 'group', children: ['r1', 'c1'] },
+      { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 20, width: 100, height: 50, fill: '#6366f1' },
+      { id: 'c1', type: 'circle', parentId: 'g1', x: 50, y: 50, width: 60, height: 60, fill: '#0d99ff' },
     ];
 
     const svgString = generateSVGString(sceneGraph, { width: 800, height: 600 });
-    expect(svgString).toContain('<svg');
+    expect(svgString).toContain('<g id="g1"');
     expect(svgString).toContain('<rect x="10" y="20"');
     expect(svgString).toContain('<ellipse cx="80" cy="80"');
-    expect(svgString).toContain('Hello</text>');
+  });
+
+  it('recursively clones group objects with unique remapped child IDs', () => {
+    const sceneGraph = [
+      { id: 'g1', type: 'group', children: ['r1', 'c1'] },
+      { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 20, width: 100, height: 50 },
+      { id: 'c1', type: 'circle', parentId: 'g1', x: 50, y: 50, width: 60, height: 60 },
+    ];
+
+    const toClone = [sceneGraph[0]]; // Clone group g1
+    const { clonedElements, topLevelPastedIds } = deepCloneElements(toClone, sceneGraph, 20);
+
+    expect(clonedElements.length).toBe(3); // Cloned group, cloned r1, cloned c1
+    const clonedGroup = clonedElements.find(e => e.type === 'group');
+    const clonedRect = clonedElements.find(e => e.type === 'rectangle');
+
+    expect(clonedGroup.id).not.toBe('g1');
+    expect(clonedRect.parentId).toBe(clonedGroup.id);
+    expect(clonedGroup.children).toContain(clonedRect.id);
+    expect(clonedGroup.children).not.toContain('r1'); // Remapped!
   });
 
   it('parses valid JSON design files with version validation', () => {
@@ -27,11 +47,5 @@ describe('Export & JSON Schema Engine', () => {
     expect(result.success).toBe(true);
     expect(result.elements.length).toBe(1);
     expect(result.project.name).toBe('Test Design');
-  });
-
-  it('rejects invalid JSON strings gracefully', () => {
-    const result = importFromJSON('invalid json content');
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
   });
 });

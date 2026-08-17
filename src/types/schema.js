@@ -7,6 +7,7 @@
  * @property {string} id - Unique identifier (e.g., 'rect-123456789')
  * @property {'rectangle'|'circle'|'text'|'group'} type - Element vector type
  * @property {string} name - User-friendly display name (e.g., 'Rectangle 1')
+ * @property {string|null} [parentId=null] - ID of parent group if element belongs to a group
  * @property {number} x - Top-left X coordinate in canvas space
  * @property {number} y - Top-left Y coordinate in canvas space
  * @property {number} width - Element width in canvas units
@@ -53,18 +54,6 @@
  * @property {string} name - Project display title
  * @property {string} createdAt - ISO timestamp string
  * @property {string} updatedAt - ISO timestamp string
- */
-
-/**
- * @typedef {Object} AlignmentGuide
- * @property {string} id - Guide unique identifier
- * @property {'vertical'|'horizontal'} type - Alignment axis orientation
- * @property {number} [x] - X position for vertical guide
- * @property {number} [y] - Y position for horizontal guide
- * @property {number} [startX] - Start X position for horizontal line
- * @property {number} [endX] - End X position for horizontal line
- * @property {number} [startY] - Start Y position for vertical line
- * @property {number} [endY] - End Y position for vertical line
  */
 
 /**

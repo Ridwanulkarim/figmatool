@@ -1,6 +1,6 @@
 /**
  * Hit Testing Utilities
- * Determines element selection from point clicks or marquee dragging.
+ * Determines element selection from point clicks or marquee dragging using SAT (Separating Axis Theorem).
  */
 
 import { rotatePoint, getBoundingBox, getTransformedCorners } from './geometry.js';
@@ -13,7 +13,6 @@ export function isPointInRotatedRect(point, element) {
   const cx = x + width / 2;
   const cy = y + height / 2;
 
-  // Rotate point backwards by -rotation around element center
   const unrotated = rotatePoint(point.x, point.y, cx, cy, -rotation);
 
   return (
@@ -62,7 +61,6 @@ export function isElementHit(point, element, sceneGraphMap = new Map()) {
     if (!element.children || element.children.length === 0) {
       return isPointInRotatedRect(point, getBoundingBox(element, sceneGraphMap));
     }
-    // Check if any child in group is hit
     return element.children.some(childId => {
       const child = sceneGraphMap.get(childId);
       return child && isElementHit(point, child, sceneGraphMap);
@@ -74,12 +72,10 @@ export function isElementHit(point, element, sceneGraphMap = new Map()) {
 
 /**
  * Find highest z-index element at point (x, y)
- * Iterates sceneGraph from top (last item) to bottom (first item)
  */
 export function hitTestPoint(point, sceneGraph) {
   const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
-  // Traverse top-to-bottom (reverse of render order)
   for (let i = sceneGraph.length - 1; i >= 0; i--) {
     const el = sceneGraph[i];
     if (isElementHit(point, el, sceneGraphMap)) {
@@ -91,20 +87,42 @@ export function hitTestPoint(point, sceneGraph) {
 }
 
 /**
- * Test if two axis-aligned rectangles overlap
+ * Separating Axis Theorem (SAT) Polygon Intersection
+ * Tests if convex polygon quad1 intersects quad2
  */
-export function rectsOverlap(r1, r2) {
-  return !(
-    r2.x > r1.x + r1.width ||
-    r2.x + r2.width < r1.x ||
-    r2.y > r1.y + r1.height ||
-    r2.y + r2.height < r1.y
-  );
+function isPolygonIntersecting(poly1, poly2) {
+  const polygons = [poly1, poly2];
+  for (let i = 0; i < polygons.length; i++) {
+    const polygon = polygons[i];
+    for (let i1 = 0; i1 < polygon.length; i1++) {
+      const i2 = (i1 + 1) % polygon.length;
+      const p1 = polygon[i1];
+      const p2 = polygon[i2];
+
+      const normal = { x: p2.y - p1.y, y: p1.x - p2.x };
+
+      let minA = Infinity, maxA = -Infinity;
+      for (const p of poly1) {
+        const projected = normal.x * p.x + normal.y * p.y;
+        minA = Math.min(minA, projected);
+        maxA = Math.max(maxA, projected);
+      }
+
+      let minB = Infinity, maxB = -Infinity;
+      for (const p of poly2) {
+        const projected = normal.x * p.x + normal.y * p.y;
+        minB = Math.min(minB, projected);
+        maxB = Math.max(maxB, projected);
+      }
+
+      if (maxA < minB || maxB < minA) return false;
+    }
+  }
+  return true;
 }
 
 /**
- * Perform marquee selection box hit test against scene graph
- * Returns array of matching element IDs
+ * Test if axis-aligned marquee rectangle intersects an element
  */
 export function hitTestRectangle(marqueeBox, sceneGraph) {
   if (marqueeBox.width <= 2 && marqueeBox.height <= 2) return [];
@@ -112,28 +130,18 @@ export function hitTestRectangle(marqueeBox, sceneGraph) {
   const matchedIds = [];
   const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
+  const marqueePoly = [
+    { x: marqueeBox.x, y: marqueeBox.y },
+    { x: marqueeBox.x + marqueeBox.width, y: marqueeBox.y },
+    { x: marqueeBox.x + marqueeBox.width, y: marqueeBox.y + marqueeBox.height },
+    { x: marqueeBox.x, y: marqueeBox.y + marqueeBox.height },
+  ];
+
   for (const el of sceneGraph) {
     if (el.hidden || el.locked) continue;
 
-    if (el.rotation) {
-      // Check if any rotated corner is inside marquee OR element bounding box overlaps marquee
-      const corners = getTransformedCorners(el);
-      const isAnyCornerInside = corners.some(
-        c =>
-          c.x >= marqueeBox.x &&
-          c.x <= marqueeBox.x + marqueeBox.width &&
-          c.y >= marqueeBox.y &&
-          c.y <= marqueeBox.y + marqueeBox.height
-      );
-
-      if (isAnyCornerInside) {
-        matchedIds.push(el.id);
-        continue;
-      }
-    }
-
-    const box = getBoundingBox(el, sceneGraphMap);
-    if (rectsOverlap(marqueeBox, box)) {
+    const corners = getTransformedCorners(el);
+    if (isPolygonIntersecting(marqueePoly, corners)) {
       matchedIds.push(el.id);
     }
   }
