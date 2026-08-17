@@ -20,28 +20,62 @@ export function rotatePoint(x, y, cx, cy, angleDeg) {
 }
 
 /**
- * Get axis-aligned bounding box (AABB) for a single element in unrotated space or group
+ * Get top-left, top-right, bottom-right, bottom-left corners in rotated space
+ */
+export function getTransformedCorners(element) {
+  const { x, y, width, height, rotation = 0 } = element;
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+
+  const corners = [
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
+  ];
+
+  if (!rotation) return corners;
+  return corners.map(c => rotatePoint(c.x, c.y, cx, cy, rotation));
+}
+
+/**
+ * Get axis-aligned bounding box (AABB) for a single element or group
+ * Accurately accounts for rotated child element quad corners!
  */
 export function getBoundingBox(element, sceneGraphMap = new Map()) {
   if (!element) return { x: 0, y: 0, width: 0, height: 0 };
 
   if (element.type === 'group' && element.children) {
-    const childBoxes = element.children
+    const children = element.children
       .map(childId => sceneGraphMap.get(childId))
-      .filter(Boolean)
-      .map(child => getBoundingBox(child, sceneGraphMap));
+      .filter(Boolean);
 
-    if (childBoxes.length === 0) {
+    if (children.length === 0) {
       return { x: element.x || 0, y: element.y || 0, width: element.width || 0, height: element.height || 0 };
     }
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const b of childBoxes) {
-      minX = Math.min(minX, b.x);
-      minY = Math.min(minY, b.y);
-      maxX = Math.max(maxX, b.x + b.width);
-      maxY = Math.max(maxY, b.y + b.height);
+
+    for (const child of children) {
+      if (child.rotation) {
+        // Child is rotated: Union all 4 transformed corners!
+        const corners = getTransformedCorners(child);
+        for (const c of corners) {
+          minX = Math.min(minX, c.x);
+          minY = Math.min(minY, c.y);
+          maxX = Math.max(maxX, c.x);
+          maxY = Math.max(maxY, c.y);
+        }
+      } else {
+        // Recursively compute bounding box for child or sub-group
+        const box = getBoundingBox(child, sceneGraphMap);
+        minX = Math.min(minX, box.x);
+        minY = Math.min(minY, box.y);
+        maxX = Math.max(maxX, box.x + box.width);
+        maxY = Math.max(maxY, box.y + box.height);
+      }
     }
+
     return {
       x: minX,
       y: minY,
@@ -61,13 +95,13 @@ export function getBoundingBox(element, sceneGraphMap = new Map()) {
 /**
  * Compute union bounding box for multiple elements
  */
-export function getMultiSelectionBoundingBox(elements) {
+export function getMultiSelectionBoundingBox(elements, sceneGraphMap = new Map()) {
   if (!elements || elements.length === 0) return null;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
   for (const el of elements) {
-    const box = getBoundingBox(el);
+    const box = getBoundingBox(el, sceneGraphMap);
     if (!el.rotation) {
       minX = Math.min(minX, box.x);
       minY = Math.min(minY, box.y);
@@ -90,25 +124,6 @@ export function getMultiSelectionBoundingBox(elements) {
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
   };
-}
-
-/**
- * Get top-left, top-right, bottom-right, bottom-left corners in rotated space
- */
-export function getTransformedCorners(element) {
-  const { x, y, width, height, rotation = 0 } = element;
-  const cx = x + width / 2;
-  const cy = y + height / 2;
-
-  const corners = [
-    { x, y },
-    { x: x + width, y },
-    { x: x + width, y: y + height },
-    { x, y: y + height },
-  ];
-
-  if (!rotation) return corners;
-  return corners.map(c => rotatePoint(c.x, c.y, cx, cy, rotation));
 }
 
 /**

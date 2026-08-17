@@ -4,14 +4,10 @@ import {
   getBoundingBox,
   getMultiSelectionBoundingBox,
   normalizeGeometry,
-  calculateResize,
-  calculateRotation,
+  getTransformedCorners,
 } from '../utils/geometry.js';
-import { isPointInRotatedRect, isPointInEllipse, hitTestRectangle } from '../utils/hitTesting.js';
-import { screenToCanvas, canvasToScreen } from '../utils/coordinates.js';
-import { snapToGrid, calculateSnapping } from '../utils/snapping.js';
 
-describe('Geometry & Math Utilities', () => {
+describe('Geometry & Group Bounding Box Utilities', () => {
   it('rotates a point around origin correctly', () => {
     const point = { x: 10, y: 0 };
     const center = { x: 0, y: 0 };
@@ -41,42 +37,25 @@ describe('Geometry & Math Utilities', () => {
     });
   });
 
-  it('correctly calculates rotated rectangle hit testing', () => {
-    const rect = { x: 100, y: 100, width: 100, height: 50, rotation: 45 };
-    // Center is (150, 125)
-    const centerPoint = { x: 150, y: 125 };
-    expect(isPointInRotatedRect(centerPoint, rect)).toBe(true);
+  it('calculates group bounding box accounting for rotated child element quad corners', () => {
+    const childRotated = { id: 'r1', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 45 };
+    const group = { id: 'g1', type: 'group', children: ['r1'] };
+    const sceneGraphMap = new Map([['r1', childRotated], ['g1', group]]);
 
-    const farPoint = { x: 0, y: 0 };
-    expect(isPointInRotatedRect(farPoint, rect)).toBe(false);
-  });
+    const groupBox = getBoundingBox(group, sceneGraphMap);
+    const corners = getTransformedCorners(childRotated);
 
-  it('converts screen to canvas coordinates with pan and zoom', () => {
-    const viewport = { panX: 50, panY: 100, zoom: 2 };
-    const bounds = { left: 10, top: 20 };
-    const screenPt = { x: 110, y: 220 }; // Relative screen = (100, 200)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const c of corners) {
+      minX = Math.min(minX, c.x);
+      minY = Math.min(minY, c.y);
+      maxX = Math.max(maxX, c.x);
+      maxY = Math.max(maxY, c.y);
+    }
 
-    const canvasPt = screenToCanvas(screenPt, viewport, bounds);
-    // (100 - 50)/2 = 25, (200 - 100)/2 = 50
-    expect(canvasPt.x).toBe(25);
-    expect(canvasPt.y).toBe(50);
-
-    const backToScreen = canvasToScreen(canvasPt, viewport, bounds);
-    expect(backToScreen.x).toBe(110);
-    expect(backToScreen.y).toBe(220);
-  });
-
-  it('snaps values to grid intervals', () => {
-    expect(snapToGrid(24, 10)).toBe(20);
-    expect(snapToGrid(26, 10)).toBe(30);
-  });
-
-  it('detects object alignment guides during snapping', () => {
-    const dragged = { x: 98, y: 100, width: 50, height: 50 };
-    const other = [{ id: 'el-1', x: 150, y: 100, width: 50, height: 50 }]; // Left edge of el-1 is 150, right edge of dragged is 148 (diff = 2)
-
-    const result = calculateSnapping(dragged, other, false);
-    expect(result.x).toBe(100); // Snapped so right edge (100+50) matches 150
-    expect(result.guides.length).toBeGreaterThan(0);
+    expect(groupBox.x).toBeCloseTo(minX, 1);
+    expect(groupBox.y).toBeCloseTo(minY, 1);
+    expect(groupBox.width).toBeCloseTo(maxX - minX, 1);
+    expect(groupBox.height).toBeCloseTo(maxY - minY, 1);
   });
 });

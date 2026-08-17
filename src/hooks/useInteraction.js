@@ -6,6 +6,26 @@ import { calculateSnapping } from '../utils/snapping.js';
 import { TransformElementsCommand, AddElementsCommand } from '../utils/commands.js';
 
 /**
+ * Helper to recursively gather all selected IDs and all descendant child IDs
+ */
+export function collectAllSelectedAndDescendantIds(selectedIds, sceneGraph) {
+  const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
+  const targetIds = new Set();
+
+  const collect = (id) => {
+    if (targetIds.has(id)) return;
+    targetIds.add(id);
+    const el = sceneGraphMap.get(id);
+    if (el && el.type === 'group' && el.children) {
+      el.children.forEach(childId => collect(childId));
+    }
+  };
+
+  selectedIds.forEach(id => collect(id));
+  return targetIds;
+}
+
+/**
  * Custom Hook managing canvas interaction modes ('drag', 'resize', 'rotate', 'marquee', 'pan')
  */
 export function useInteraction({
@@ -29,9 +49,9 @@ export function useInteraction({
   const [alignmentGuides, setAlignmentGuides] = useState([]);
   const [cursorCanvasPos, setCursorCanvasPos] = useState({ x: 0, y: 0 });
 
-  // Initial interaction state snapshots for smooth rotation & history
   const initialDragStateRef = useRef([]);
   const initialRotationStateRef = useRef({ initialPointerAngle: 0, initialElementRotation: 0 });
+  const activeDragIdsRef = useRef(new Set());
 
   const spawnShape = useCallback((type, canvasPos) => {
     const shapeCount = sceneGraph.filter(el => el.type === type).length + 1;
@@ -118,7 +138,11 @@ export function useInteraction({
       setInteractionMode('drag');
       setDragStartPoint(canvasPt);
 
-      const targets = sceneGraph.filter(el => newSelectedIds.includes(el.id));
+      // Collect all selected IDs AND all descendant child IDs recursively!
+      const allTargetIds = collectAllSelectedAndDescendantIds(newSelectedIds, sceneGraph);
+      activeDragIdsRef.current = allTargetIds;
+
+      const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
       initialDragStateRef.current = targets.map(el => ({ ...el }));
     } else {
       if (!e.shiftKey) {
@@ -180,16 +204,17 @@ export function useInteraction({
         height: primaryTarget.height,
       };
 
-      const otherElements = sceneGraph.filter(el => !selectedIds.includes(el.id));
+      const otherElements = sceneGraph.filter(el => !activeDragIdsRef.current.has(el.id));
       const snapResult = calculateSnapping(candidateBox, otherElements, gridEnabled);
       setAlignmentGuides(snapResult.guides);
 
       const finalDx = snapResult.x - primaryTarget.x;
       const finalDy = snapResult.y - primaryTarget.y;
 
+      // Update positions of both group objects AND all descendant children
       setSceneGraph(prev =>
         prev.map(el => {
-          if (selectedIds.includes(el.id)) {
+          if (activeDragIdsRef.current.has(el.id)) {
             const initial = initialTargets.find(it => it.id === el.id);
             if (initial) {
               return {
@@ -251,7 +276,8 @@ export function useInteraction({
   const handlePointerUp = useCallback(() => {
     if (interactionMode === 'drag' || interactionMode === 'resize' || interactionMode === 'rotate') {
       const oldStates = initialDragStateRef.current;
-      const newStates = sceneGraph.filter(el => selectedIds.includes(el.id));
+      const targetIds = activeDragIdsRef.current.size > 0 ? activeDragIdsRef.current : new Set(selectedIds);
+      const newStates = sceneGraph.filter(el => targetIds.has(el.id));
 
       const hasChanged = newStates.some((ns) => {
         const os = oldStates.find(o => o.id === ns.id);
@@ -271,6 +297,7 @@ export function useInteraction({
     setMarqueeBox(null);
     setAlignmentGuides([]);
     initialDragStateRef.current = [];
+    activeDragIdsRef.current = new Set();
     initialRotationStateRef.current = { initialPointerAngle: 0, initialElementRotation: 0 };
   }, [interactionMode, sceneGraph, selectedIds, historyManagerRef, triggerHistoryUpdate]);
 
