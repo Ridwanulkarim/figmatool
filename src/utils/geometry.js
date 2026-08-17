@@ -1,0 +1,243 @@
+/**
+ * Geometry and Math Utility Functions for Vector Engine
+ * Pure JS, decoupled from React rendering.
+ */
+
+export const degToRad = (deg) => (deg * Math.PI) / 180;
+export const radToDeg = (rad) => (rad * 180) / Math.PI;
+
+/**
+ * Rotate point (x, y) around center point (cx, cy) by angle in degrees
+ */
+export function rotatePoint(x, y, cx, cy, angleDeg) {
+  if (!angleDeg) return { x, y };
+  const rad = degToRad(angleDeg);
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const nx = cos * (x - cx) - sin * (y - cy) + cx;
+  const ny = sin * (x - cx) + cos * (y - cy) + cy;
+  return { x: nx, y: ny };
+}
+
+/**
+ * Get axis-aligned bounding box (AABB) for a single element in unrotated space or group
+ */
+export function getBoundingBox(element, sceneGraphMap = new Map()) {
+  if (!element) return { x: 0, y: 0, width: 0, height: 0 };
+
+  if (element.type === 'group' && element.children) {
+    const childBoxes = element.children
+      .map(childId => sceneGraphMap.get(childId) || element.childrenObjects?.find(c => c.id === childId))
+      .filter(Boolean)
+      .map(child => getBoundingBox(child, sceneGraphMap));
+
+    if (childBoxes.length === 0) {
+      return { x: element.x || 0, y: element.y || 0, width: element.width || 0, height: element.height || 0 };
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const b of childBoxes) {
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
+      maxY = Math.max(maxY, b.y + b.height);
+    }
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    };
+  }
+
+  return {
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+  };
+}
+
+/**
+ * Compute union bounding box for multiple elements
+ */
+export function getMultiSelectionBoundingBox(elements) {
+  if (!elements || elements.length === 0) return null;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  for (const el of elements) {
+    const box = getBoundingBox(el);
+    if (!el.rotation) {
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + box.width);
+      maxY = Math.max(maxY, box.y + box.height);
+    } else {
+      // Calculate 4 rotated corners
+      const corners = getTransformedCorners(el);
+      for (const c of corners) {
+        minX = Math.min(minX, c.x);
+        minY = Math.min(minY, c.y);
+        maxX = Math.max(maxX, c.x);
+        maxY = Math.max(maxY, c.y);
+      }
+    }
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+/**
+ * Get top-left, top-right, bottom-right, bottom-left corners in rotated space
+ */
+export function getTransformedCorners(element) {
+  const { x, y, width, height, rotation = 0 } = element;
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+
+  const corners = [
+    { x, y }, // TL
+    { x: x + width, y }, // TR
+    { x: x + width, y: y + height }, // BR
+    { x, y: y + height }, // BL
+  ];
+
+  if (!rotation) return corners;
+  return corners.map(c => rotatePoint(c.x, c.y, cx, cy, rotation));
+}
+
+/**
+ * Handle resizing through negative width/height edge flipping
+ * Normalizes element geometry so width & height are always positive.
+ */
+export function normalizeGeometry({ x, y, width, height }) {
+  let newX = x;
+  let newY = y;
+  let newW = width;
+  let newH = height;
+
+  if (newW < 0) {
+    newW = Math.abs(newW);
+    newX = newX - newW;
+  }
+  if (newH < 0) {
+    newH = Math.abs(newH);
+    newY = newY - newH;
+  }
+
+  return { x: newX, y: newY, width: Math.max(5, newW), height: Math.max(5, newH) };
+}
+
+/**
+ * Calculate resized dimensions given active handle ('nw', 'n', 'ne', etc.), delta dx/dy,
+ * aspect ratio constraint, and rotation.
+ */
+export function calculateResize({ element, handle, dx, dy, keepAspectRatio = false, minSize = 5 }) {
+  const rotation = element.rotation || 0;
+  
+  // Convert dx, dy from world to local rotated coordinate space if element is rotated
+  let localDx = dx;
+  let localDy = dy;
+  if (rotation) {
+    const rad = degToRad(-rotation);
+    localDx = dx * Math.cos(rad) - dy * Math.sin(rad);
+    localDy = dx * Math.sin(rad) + dy * Math.cos(rad);
+  }
+
+  let { x, y, width, height } = element;
+  const originalAspect = width / (height || 1);
+
+  switch (handle) {
+    case 'e':
+      width += localDx;
+      break;
+    case 'w':
+      width -= localDx;
+      x += localDx;
+      break;
+    case 's':
+      height += localDy;
+      break;
+    case 'n':
+      height -= localDy;
+      y += localDy;
+      break;
+    case 'se':
+      width += localDx;
+      height += localDy;
+      break;
+    case 'sw':
+      width -= localDx;
+      x += localDx;
+      height += localDy;
+      break;
+    case 'ne':
+      width += localDx;
+      height -= localDy;
+      y += localDy;
+      break;
+    case 'nw':
+      width -= localDx;
+      x += localDx;
+      height -= localDy;
+      y += localDy;
+      break;
+    default:
+      break;
+  }
+
+  // Preserve aspect ratio if requested
+  if (keepAspectRatio && originalAspect) {
+    if (['e', 'w'].includes(handle)) {
+      height = width / originalAspect;
+    } else if (['n', 's'].includes(handle)) {
+      width = height * originalAspect;
+    } else {
+      // Corner handle
+      const newAspect = Math.abs(width / (height || 1));
+      if (newAspect > originalAspect) {
+        height = width / originalAspect;
+      } else {
+        width = height * originalAspect;
+      }
+    }
+  }
+
+  // Handle negative dimensions seamlessly
+  const normalized = normalizeGeometry({ x, y, width, height });
+
+  // Enforce minimum dimension
+  normalized.width = Math.max(minSize, normalized.width);
+  normalized.height = Math.max(minSize, normalized.height);
+
+  return normalized;
+}
+
+/**
+ * Calculate rotation angle from element center to pointer position
+ */
+export function calculateRotation(element, pointerCanvasPos, snapShift = false) {
+  const cx = element.x + element.width / 2;
+  const cy = element.y + element.height / 2;
+
+  const dx = pointerCanvasPos.x - cx;
+  const dy = pointerCanvasPos.y - cy;
+
+  // Math.atan2 returns angle in radians from positive X axis (3 o'clock)
+  // Standard rotation starts at 12 o'clock (-90 deg offset)
+  let angle = radToDeg(Math.atan2(dy, dx)) + 90;
+  if (angle < 0) angle += 360;
+
+  if (snapShift) {
+    // Snap to nearest 15 degree increment when Shift key is pressed
+    angle = Math.round(angle / 15) * 15;
+  }
+
+  return Math.round(angle % 360);
+}
