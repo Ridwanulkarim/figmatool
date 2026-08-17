@@ -2,24 +2,55 @@
 
 🌐 **Live Application Demo**: [https://figmatool.vercel.app/](https://figmatool.vercel.app/)
 
-VectorCraft is a browser-based **Figma-inspired vector design editor** built with React, Vite, Tailwind CSS, and SVG rendering. It is designed to demonstrate advanced frontend engineering architecture, state management, complex geometry transformations, command-based undo/redo history, object & grid snapping, nested grouping, and multi-format export.
-
+VectorCraft is a browser-based **Figma-inspired vector design editor** built with React, Vite, Tailwind CSS, and SVG rendering. It features a decoupled scene graph, modular custom hooks architecture, command-based undo/redo history, smart object snapping, nested grouping, inspector breadcrumbs, spotlight command palette, and a 6-suite automated unit test engine.
 
 ---
 
-## 🌟 Features
+## 🏗️ Architecture & Data Flow
 
-### 🎨 Canvas & Vector Rendering
+```mermaid
+graph TD
+    User["User Interaction / Pointer Events"] --> Context["EditorContext & Custom Hooks"]
+    
+    subgraph Custom Hooks Layer
+        Context --> ViewportHook["useViewport<br/>(pan, zoom, fit)"]
+        Context --> SelectionHook["useSelection<br/>(selectedIds, multi-select)"]
+        Context --> HistoryHook["useHistory<br/>(CommandManager, undo, redo)"]
+        Context --> ClipboardHook["useClipboard<br/>(copy, paste, duplicate)"]
+        Context --> InteractionHook["useInteraction<br/>(drag, resize, rotate, marquee)"]
+    end
+
+    subgraph Pure JS Utility Engine
+        InteractionHook --> Geometry["geometry.js<br/>(rotated AABB, resize math)"]
+        InteractionHook --> HitTesting["hitTesting.js<br/>(rotated collision, marquee)"]
+        InteractionHook --> Snapping["snapping.js<br/>(grid & object guide lines)"]
+        HistoryHook --> Commands["commands.js<br/>(Command Pattern transactions)"]
+    end
+
+    Context --> SceneState["React Scene Graph State"]
+    SceneState --> SVGCanvas["SVG Canvas Renderer"]
+    SVGCanvas --> Overlays["SelectionOverlay & Guides"]
+    
+    Context --> TopToolbar["TopToolbar & Command Palette (Cmd+K)"]
+    Context --> LayersPanel["LayersPanel & Z-Index Tree"]
+    Context --> PropertiesPanel["PropertiesPanel & Hierarchy Breadcrumbs"]
+    Context --> StatusBar["StatusBar (FPS & Object Metrics)"]
+```
+
+---
+
+## 🌟 Key Features
+
+### 🎨 Canvas & Vector Engine
 - **SVG Scene Engine**: High-performance SVG scene graph renderer driven purely by React state.
-- **Shape Support**: Rectangles, Circles/Ellipses, Editable Typography Text, and Nested Groups.
+- **Shape Support**: Rectangles, Circles/Ellipses, Typography Text, and Nested Groups.
 - **Double-Click Canvas**: Spawns default shapes near clicked location.
-- **Empty State Onboarding**: Contextual guidance when the design canvas is empty.
 
 ### 📐 Selection & Transformations
 - **8 Resize Handles**: Top-Left, Top, Top-Right, Right, Bottom-Right, Bottom, Bottom-Left, Left with handle flipping for negative dimension resizing.
 - **Aspect Ratio Constraint**: Hold `Shift` while dragging handles to preserve proportions.
 - **Rotation Handle**: Free rotation and `Shift`-snapped 15° increment rotation.
-- **Marquee Selection**: Multi-select elements by dragging a selection rectangle across the canvas.
+- **Marquee Selection**: Multi-select elements by dragging a selection box across canvas.
 - **Keyboard Nudging**: Arrow keys nudge elements by 1px (`Shift + Arrow` nudges by 10px).
 
 ### ⚡ Command-Based Undo / Redo
@@ -27,7 +58,7 @@ VectorCraft is a browser-based **Figma-inspired vector design editor** built wit
 - **Pointerup Transactions**: Dragging, resizing, and rotating create **exactly one** undoable history command when interaction completes.
 
 ### 🎯 Snapping & Alignment Engine
-- **Grid Snapping**: Snap positions to customizable grid intervals (e.g. 10px).
+- **Grid Snapping**: Snap positions to customizable grid intervals (10px).
 - **Smart Object Snapping**: Snap to Left, Right, Center X, Top, Bottom, and Center Y of other visible elements.
 - **Visual Alignment Guides**: Dynamic SVG overlay rendering alignment lines.
 - **Alignment & Distribution**: Align Left, Center, Right, Top, Middle, Bottom, and Distribute Horizontally / Vertically.
@@ -39,59 +70,10 @@ VectorCraft is a browser-based **Figma-inspired vector design editor** built wit
 - **Layer Renaming**: Double-click layer name to rename.
 - **Nested Groups**: Group (`Ctrl/Cmd + G`) and Ungroup (`Shift + G`) with recursive scene graph structure.
 
-### 🎛️ Dynamic Properties Inspector
-- Position (X, Y), Dimension (W, H), Rotation (°).
-- Fill color picker with preset palette swatches.
-- Stroke border color and width (px).
-- Opacity slider (0% - 100%).
-- Text typography: Font Family, Font Size, Font Weight, Alignment.
-
-### 💾 Projects & Export
-- **LocalStorage Persistence**: Autosave and named multi-project manager.
-- **SVG Export**: Standalone vector `.svg` document export.
-- **PNG Export**: High-resolution PNG raster rendering.
-- **JSON Import / Export**: Schema versioned JSON format (`version: 1`) with schema migration capability.
-
----
-
-## 🏗️ Architecture
-
-```text
-App (Main Controller & Context)
-├── TopToolbar (File, Edit, Export, Undo/Redo, Projects)
-├── LeftToolPanel (Select, Rectangle, Circle, Text, Hand)
-├── SVGCanvas (SVG Scene Graph Engine)
-│   ├── RenderElement (Recursive Rect/Circle/Text/Group renderer)
-│   ├── SelectionOverlay (8 Resize Handles, Rotation Handle, Marquee)
-│   ├── InPlaceTextEditor (Double-click overlay text input)
-│   └── Alignment Guides (Smart snapping line overlay)
-├── LayersPanel (Z-Index Tree, Visibility, Lock, Rename)
-├── PropertiesPanel (Inspector, Color Swatches, Align/Distribute)
-├── ContextMenu (Right-click floating menu)
-├── ProjectModal (Named Projects Manager)
-└── StatusBar (Coordinates, Selection info, Mouse-centered Zoom)
-
-Engine Utilities (Pure JS - Decoupled from React DOM):
-├── geometry.js (Rotate points, Rotated AABB, Aspect ratio & negative handles)
-├── hitTesting.js (Point hit test, Rotated rect collision, Marquee intersection)
-├── coordinates.js (Screen to Canvas & Canvas to Screen coordinate transforms)
-├── snapping.js (Grid & Object edge/center alignment guide math)
-├── commands.js (Command pattern history manager & transaction batching)
-├── export.js (SVG markup builder, PNG canvas exporter, Versioned JSON importer)
-├── persistence.js (LocalStorage project manager & seed starter templates)
-└── shortcuts.js (Centralized keyboard event registry with form input safety)
-```
-
----
-
-## ❓ Why SVG over Canvas 2D?
-
-| Feature | SVG Vector Engine | Canvas 2D Engine |
-| :--- | :--- | :--- |
-| **DOM Hierarchy** | Native DOM element mapping per shape | Manual pixel buffer rasterization |
-| **Resolution** | Resolution independent at any zoom | Pixelation on high DPI / extreme zoom |
-| **Exporting** | Direct SVG string serialization | Requires manual path reconstruction |
-| **Accessibility & Styling**| Native CSS properties, cursors, and pointer events | Manual hit-region color index buffer |
+### 🌟 Portfolio Upgrades
+- **Spotlight Command Palette**: Press `Ctrl/Cmd + K` to open search palette with instant hotkey badges.
+- **Hierarchy Breadcrumbs**: Visual breadcrumb path in Properties Panel (`Canvas > Group 1 > Rectangle 2`).
+- **Real-Time Performance Metrics**: Status bar showing live FPS counter, scene object count, and coordinates.
 
 ---
 
@@ -99,6 +81,7 @@ Engine Utilities (Pure JS - Decoupled from React DOM):
 
 | Shortcut | Action |
 | :--- | :--- |
+| `Ctrl/Cmd + K` | Open Command Palette |
 | `V` | Select Tool |
 | `R` | Rectangle Tool |
 | `O` | Circle Tool |
@@ -118,23 +101,24 @@ Engine Utilities (Pure JS - Decoupled from React DOM):
 
 ---
 
-## 🚫 Intentionally Excluded Scope
+## 🧪 Testing (6 Dedicated Test Suites)
 
-The following features are intentionally out of scope to focus on frontend architecture and interaction design:
-- Real-time multiplayer WebSockets / CRDT collaboration
-- Bezier pen / vector curve path editing
-- Plugin system architecture
-- Prototyping interactive transitions
-- Backend cloud storage
-
----
-
-## 🧪 Testing
-
-Run automated Vitest test suite covering geometry, rotated bounding boxes, negative handle normalization, hit testing, coordinate conversions, and snapping math:
+Run automated Vitest test suite covering geometry, rotated bounding boxes, hit testing, snapping, coordinate transformations, command history, and SVG/JSON export:
 
 ```sh
 npm test
+```
+
+```text
+ ✓ src/tests/coordinates.test.js (2 tests)
+ ✓ src/tests/export.test.js (3 tests)
+ ✓ src/tests/snapping.test.js (3 tests)
+ ✓ src/tests/history.test.js (3 tests)
+ ✓ src/tests/hitTesting.test.js (6 tests)
+ ✓ src/tests/geometry.test.js (7 tests)
+
+ Test Files  6 passed (6)
+      Tests  24 passed (24)
 ```
 
 ---

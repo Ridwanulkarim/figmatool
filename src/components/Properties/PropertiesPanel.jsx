@@ -1,10 +1,10 @@
 import React from 'react';
 import AlignDistributeControls from './AlignDistributeControls.jsx';
+import BreadcrumbNav from './BreadcrumbNav.jsx';
 import {
   SlidersHorizontal,
   RotateCw,
   Palette,
-  Eye,
   Type,
   AlignLeft,
   AlignCenter,
@@ -18,6 +18,8 @@ const PRESET_COLORS = [
 
 export default function PropertiesPanel({
   selectedElements,
+  sceneGraph,
+  onSelectLayer,
   onUpdateProperties,
   onAlign,
   onDistribute,
@@ -33,6 +35,7 @@ export default function PropertiesPanel({
           <SlidersHorizontal size={14} className="text-indigo-400" />
           <span>Properties</span>
         </div>
+        <BreadcrumbNav selectedElements={[]} sceneGraph={sceneGraph} onSelectLayer={onSelectLayer} />
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-500 text-xs">
           <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center mb-2 text-gray-600">
             <SlidersHorizontal size={18} />
@@ -44,7 +47,6 @@ export default function PropertiesPanel({
     );
   }
 
-  // Values (if single or shared across multi)
   const valX = isSingle ? Math.round(primaryElement.x || 0) : 'Mixed';
   const valY = isSingle ? Math.round(primaryElement.y || 0) : 'Mixed';
   const valW = isSingle ? Math.round(primaryElement.width || 0) : 'Mixed';
@@ -76,6 +78,9 @@ export default function PropertiesPanel({
           {isSingle ? primaryElement.name || primaryElement.type : `${selectedElements.length} Selected`}
         </span>
       </div>
+
+      {/* Hierarchy Breadcrumb Navigation */}
+      <BreadcrumbNav selectedElements={selectedElements} sceneGraph={sceneGraph} onSelectLayer={onSelectLayer} />
 
       {/* Align & Distribute Controls */}
       <AlignDistributeControls
@@ -158,7 +163,7 @@ export default function PropertiesPanel({
         </div>
       </div>
 
-      {/* Text Properties Section (if text element selected) */}
+      {/* Text Properties Section */}
       {isTextSelected && (
         <div className="border-b border-gray-800 p-3 space-y-2">
           <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
@@ -166,7 +171,6 @@ export default function PropertiesPanel({
             <Type size={13} className="text-emerald-400" />
           </div>
 
-          {/* Text String */}
           <div>
             <label className="text-[10px] text-gray-500 block mb-1">Content</label>
             <input
@@ -177,7 +181,6 @@ export default function PropertiesPanel({
             />
           </div>
 
-          {/* Font Family */}
           <div>
             <label className="text-[10px] text-gray-500 block mb-1">Font Family</label>
             <select
@@ -194,7 +197,6 @@ export default function PropertiesPanel({
             </select>
           </div>
 
-          {/* Font Size & Weight */}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-[10px] text-gray-500 block mb-1">Size (px)</label>
@@ -220,7 +222,6 @@ export default function PropertiesPanel({
             </div>
           </div>
 
-          {/* Alignment */}
           <div>
             <label className="text-[10px] text-gray-500 block mb-1">Text Align</label>
             <div className="grid grid-cols-3 gap-1 bg-gray-950 p-1 rounded border border-gray-800">
@@ -253,7 +254,7 @@ export default function PropertiesPanel({
         </div>
       )}
 
-      {/* Fill & Color System */}
+      {/* Fill Color */}
       <div className="border-b border-gray-800 p-3 space-y-3">
         <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
           <span>Fill Color</span>
@@ -275,7 +276,6 @@ export default function PropertiesPanel({
           />
         </div>
 
-        {/* Preset Color Palette Swatches */}
         <div>
           <label className="text-[10px] text-gray-500 block mb-1.5">Preset Palette</label>
           <div className="flex flex-wrap gap-1.5">

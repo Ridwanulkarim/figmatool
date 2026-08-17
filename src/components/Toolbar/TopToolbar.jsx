@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Undo2,
   Redo2,
@@ -11,15 +11,15 @@ import {
   FileCode,
   Image,
   ChevronDown,
-  Layers,
   Sparkles,
   Grid,
-  Check,
+  Command,
 } from 'lucide-react';
 
 export default function TopToolbar({
   currentProject,
   onOpenProjects,
+  onOpenCommandPalette,
   onSave,
   canUndo,
   canRedo,
@@ -35,8 +35,6 @@ export default function TopToolbar({
   onImportJSON,
   gridEnabled,
   onToggleGrid,
-  darkMode,
-  onToggleDarkMode,
 }) {
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -125,8 +123,19 @@ export default function TopToolbar({
         <input type="file" ref={fileInputRef} onChange={handleImportFile} accept=".json" className="hidden" />
       </div>
 
-      {/* Center: Quick Action Buttons */}
+      {/* Center: Quick Action Buttons & Command Palette Trigger */}
       <div className="flex items-center space-x-1">
+        {/* Command Palette Button */}
+        <button
+          onClick={onOpenCommandPalette}
+          className="flex items-center space-x-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 py-1 rounded-md border border-gray-700 text-xs font-medium transition-colors mr-2"
+          title="Open Command Palette (Cmd+K)"
+        >
+          <Command size={13} className="text-indigo-400" />
+          <span className="hidden md:inline">Commands</span>
+          <span className="text-[10px] font-mono bg-gray-900 text-gray-400 px-1 rounded border border-gray-700">⌘K</span>
+        </button>
+
         {/* Undo / Redo */}
         <div className="flex items-center bg-gray-800/80 rounded-lg p-0.5 border border-gray-700/60">
           <button
