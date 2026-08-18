@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   HistoryManager,
   AddElementsCommand,
+  DeleteElementsCommand,
   GroupElementsCommand,
   TransformElementsCommand,
 } from '../utils/commands.js';
 import { collectAllSelectedAndDescendantIds } from '../hooks/useInteraction.js';
 
-describe('Command Pattern History Manager & Group Descendants', () => {
+describe('Command Pattern History Manager & Group Hierarchy Operations', () => {
   it('pushes commands and manages undo/redo stack', () => {
     const history = new HistoryManager(10);
     let scene = [];
@@ -29,7 +30,7 @@ describe('Command Pattern History Manager & Group Descendants', () => {
     expect(scene.length).toBe(1);
   });
 
-  it('recursively gathers all descendant child IDs for group drag operations', () => {
+  it('recursively gathers all descendant child IDs for group operations', () => {
     const sceneGraph = [
       { id: 'g1', type: 'group', children: ['g2', 'c1'] },
       { id: 'g2', type: 'group', parentId: 'g1', children: ['r1'] },
@@ -45,25 +46,50 @@ describe('Command Pattern History Manager & Group Descendants', () => {
     expect(allIds.size).toBe(4);
   });
 
-  it('transforms group and all descendant children simultaneously during drag', () => {
+  it('deletes group and all descendant children recursively and restores hierarchy on undo', () => {
+    const history = new HistoryManager(10);
+    let sceneGraph = [
+      { id: 'g1', type: 'group', children: ['r1', 'c1'] },
+      { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 10 },
+      { id: 'c1', type: 'circle', parentId: 'g1', x: 50, y: 50 },
+    ];
+
+    const allTargetIds = collectAllSelectedAndDescendantIds(['g1'], sceneGraph);
+    const toDelete = sceneGraph.filter(el => allTargetIds.has(el.id));
+    const deleteCmd = new DeleteElementsCommand(toDelete);
+
+    sceneGraph = deleteCmd.execute(sceneGraph);
+    history.push(deleteCmd);
+
+    // Completely deleted without orphaned children!
+    expect(sceneGraph.length).toBe(0);
+
+    // Undo restores full hierarchy cleanly
+    sceneGraph = history.undo(sceneGraph);
+    expect(sceneGraph.length).toBe(3);
+    expect(sceneGraph.find(e => e.id === 'r1').parentId).toBe('g1');
+  });
+
+  it('transforms group and all descendant children simultaneously during arrow key nudging', () => {
     const history = new HistoryManager(10);
     let scene = [
       { id: 'g1', type: 'group', x: 0, y: 0, children: ['r1'] },
       { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 10 },
     ];
 
-    const oldStates = scene.map(e => ({ ...e }));
-    const newStates = scene.map(e => ({ ...e, x: e.x + 50, y: e.y + 50 }));
+    const allTargetIds = collectAllSelectedAndDescendantIds(['g1'], scene);
+    const oldStates = scene.filter(e => allTargetIds.has(e.id)).map(e => ({ ...e }));
+    const newStates = oldStates.map(e => ({ ...e, x: e.x + 10, y: e.y + 10 }));
 
-    const moveCmd = new TransformElementsCommand(oldStates, newStates);
-    scene = moveCmd.execute(scene);
-    history.push(moveCmd);
+    const nudgeCmd = new TransformElementsCommand(oldStates, newStates);
+    scene = nudgeCmd.execute(scene);
+    history.push(nudgeCmd);
 
-    expect(scene.find(e => e.id === 'g1').x).toBe(50);
-    expect(scene.find(e => e.id === 'r1').x).toBe(60); // Child moved!
+    expect(scene.find(e => e.id === 'g1').x).toBe(10);
+    expect(scene.find(e => e.id === 'r1').x).toBe(20);
 
     scene = history.undo(scene);
     expect(scene.find(e => e.id === 'g1').x).toBe(0);
-    expect(scene.find(e => e.id === 'r1').x).toBe(10); // Child restored!
+    expect(scene.find(e => e.id === 'r1').x).toBe(10);
   });
 });

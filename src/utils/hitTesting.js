@@ -1,9 +1,15 @@
 /**
  * Hit Testing Utilities
- * Determines element selection from point clicks or marquee dragging using SAT (Separating Axis Theorem).
+ * Determines element selection from point clicks or marquee dragging using SAT (Separating Axis Theorem)
+ * and World Space Transformations for Nested Rotated Groups.
  */
 
-import { rotatePoint, getBoundingBox, getTransformedCorners } from './geometry.js';
+import {
+  rotatePoint,
+  getBoundingBox,
+  getWorldTransformedCorners,
+  transformPointToLocalSpace,
+} from './geometry.js';
 
 /**
  * Test if point (x, y) is inside a rotated rectangle
@@ -44,22 +50,25 @@ export function isPointInEllipse(point, element) {
 }
 
 /**
- * Check if a single element is hit by point (x, y)
+ * Check if a single element is hit by point (x, y) accounting for parent group world space transforms
  */
 export function isElementHit(point, element, sceneGraphMap = new Map()) {
   if (!element || element.hidden || element.locked) return false;
 
+  // Transform world point into element's local space by un-rotating through ancestor groups
+  const localPoint = transformPointToLocalSpace(point, element, sceneGraphMap);
+
   if (element.type === 'rectangle' || element.type === 'text') {
-    return isPointInRotatedRect(point, element);
+    return isPointInRotatedRect(localPoint, element);
   }
 
   if (element.type === 'circle') {
-    return isPointInEllipse(point, element);
+    return isPointInEllipse(localPoint, element);
   }
 
   if (element.type === 'group') {
     if (!element.children || element.children.length === 0) {
-      return isPointInRotatedRect(point, getBoundingBox(element, sceneGraphMap));
+      return isPointInRotatedRect(localPoint, getBoundingBox(element, sceneGraphMap));
     }
     return element.children.some(childId => {
       const child = sceneGraphMap.get(childId);
@@ -67,7 +76,7 @@ export function isElementHit(point, element, sceneGraphMap = new Map()) {
     });
   }
 
-  return isPointInRotatedRect(point, element);
+  return isPointInRotatedRect(localPoint, element);
 }
 
 /**
@@ -88,7 +97,6 @@ export function hitTestPoint(point, sceneGraph) {
 
 /**
  * Separating Axis Theorem (SAT) Polygon Intersection
- * Tests if convex polygon quad1 intersects quad2
  */
 function isPolygonIntersecting(poly1, poly2) {
   const polygons = [poly1, poly2];
@@ -122,7 +130,7 @@ function isPolygonIntersecting(poly1, poly2) {
 }
 
 /**
- * Test if axis-aligned marquee rectangle intersects an element
+ * Test if axis-aligned marquee rectangle intersects an element using World Space Quad Coordinates
  */
 export function hitTestRectangle(marqueeBox, sceneGraph) {
   if (marqueeBox.width <= 2 && marqueeBox.height <= 2) return [];
@@ -140,7 +148,8 @@ export function hitTestRectangle(marqueeBox, sceneGraph) {
   for (const el of sceneGraph) {
     if (el.hidden || el.locked) continue;
 
-    const corners = getTransformedCorners(el);
+    // Use world space quad corners accounting for parent group transforms!
+    const corners = getWorldTransformedCorners(el, sceneGraphMap);
     if (isPolygonIntersecting(marqueePoly, corners)) {
       matchedIds.push(el.id);
     }

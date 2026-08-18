@@ -1,6 +1,7 @@
 /**
  * Geometry and Math Utility Functions for Vector Engine
  * Pure JS, decoupled from React rendering.
+ * Implements World Space Transformation Matrices for Nested Groups.
  */
 
 export const degToRad = (deg) => (deg * Math.PI) / 180;
@@ -20,9 +21,48 @@ export function rotatePoint(x, y, cx, cy, angleDeg) {
 }
 
 /**
- * Get top-left, top-right, bottom-right, bottom-left corners in rotated space
+ * Traverses parentId links to return array of ancestor groups from root down to immediate parent
  */
-export function getTransformedCorners(element) {
+export function getAncestorGroups(element, sceneGraphMap = new Map()) {
+  const ancestors = [];
+  let current = element;
+
+  while (current && current.parentId) {
+    const parent = sceneGraphMap.get(current.parentId);
+    if (parent && !ancestors.some(a => a.id === parent.id)) {
+      ancestors.unshift(parent); // Prepend so root group comes first
+      current = parent;
+    } else {
+      break;
+    }
+  }
+
+  return ancestors;
+}
+
+/**
+ * Transform a world canvas point into an element's local coordinate space by un-rotating through ancestor group matrices
+ */
+export function transformPointToLocalSpace(point, element, sceneGraphMap = new Map()) {
+  const ancestors = getAncestorGroups(element, sceneGraphMap);
+  let localPt = { ...point };
+
+  // Apply inverse transforms from root group down to immediate parent
+  for (const parentGroup of ancestors) {
+    if (parentGroup.rotation) {
+      const cx = parentGroup.x + parentGroup.width / 2;
+      const cy = parentGroup.y + parentGroup.height / 2;
+      localPt = rotatePoint(localPt.x, localPt.y, cx, cy, -parentGroup.rotation);
+    }
+  }
+
+  return localPt;
+}
+
+/**
+ * Get 4 corner points of an element in local space
+ */
+export function getLocalCorners(element) {
   const { x, y, width, height, rotation = 0 } = element;
   const cx = x + width / 2;
   const cy = y + height / 2;
@@ -36,6 +76,33 @@ export function getTransformedCorners(element) {
 
   if (!rotation) return corners;
   return corners.map(c => rotatePoint(c.x, c.y, cx, cy, rotation));
+}
+
+/**
+ * Get 4 corner points of an element in World Canvas space accounting for all ancestor group transforms
+ */
+export function getWorldTransformedCorners(element, sceneGraphMap = new Map()) {
+  let corners = getLocalCorners(element);
+  const ancestors = getAncestorGroups(element, sceneGraphMap);
+
+  // Apply parent group transforms from immediate parent up to root group
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const parentGroup = ancestors[i];
+    if (parentGroup.rotation) {
+      const cx = parentGroup.x + parentGroup.width / 2;
+      const cy = parentGroup.y + parentGroup.height / 2;
+      corners = corners.map(c => rotatePoint(c.x, c.y, cx, cy, parentGroup.rotation));
+    }
+  }
+
+  return corners;
+}
+
+/**
+ * Backward compatible transformed corners helper
+ */
+export function getTransformedCorners(element) {
+  return getLocalCorners(element);
 }
 
 /**
@@ -58,7 +125,6 @@ export function getBoundingBox(element, sceneGraphMap = new Map()) {
 
     for (const child of children) {
       if (child.rotation) {
-        // Child is rotated: Union all 4 transformed corners!
         const corners = getTransformedCorners(child);
         for (const c of corners) {
           minX = Math.min(minX, c.x);
@@ -67,7 +133,6 @@ export function getBoundingBox(element, sceneGraphMap = new Map()) {
           maxY = Math.max(maxY, c.y);
         }
       } else {
-        // Recursively compute bounding box for child or sub-group
         const box = getBoundingBox(child, sceneGraphMap);
         minX = Math.min(minX, box.x);
         minY = Math.min(minY, box.y);
@@ -108,7 +173,7 @@ export function getMultiSelectionBoundingBox(elements, sceneGraphMap = new Map()
       maxX = Math.max(maxX, box.x + box.width);
       maxY = Math.max(maxY, box.y + box.height);
     } else {
-      const corners = getTransformedCorners(el);
+      const corners = getWorldTransformedCorners(el, sceneGraphMap);
       for (const c of corners) {
         minX = Math.min(minX, c.x);
         minY = Math.min(minY, c.y);

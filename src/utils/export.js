@@ -1,7 +1,9 @@
 /**
  * Export and Migration Utility Engine
- * Supports SVG, PNG, and Versioned JSON import/export
+ * Supports SVG, PNG, and Versioned JSON import/export with Strict Validation
  */
+
+import { validateElementSchema } from '../types/schema.js';
 
 export const CURRENT_SCHEMA_VERSION = 1;
 
@@ -46,7 +48,7 @@ function elementToSVG(element, sceneGraphMap) {
         textX = x + width;
       }
 
-      const textY = y + fontSize; // Approx baseline
+      const textY = y + fontSize;
       return `<text x="${textX}" y="${textY}" font-size="${fontSize}" font-family="${fontFamily}" font-weight="${fontWeight}" text-anchor="${textAnchor}" fill="${fill}" ${opacityAttr} ${transform}>${escapeXML(text)}</text>`;
 
     case 'group':
@@ -77,7 +79,9 @@ function escapeXML(str) {
  */
 export function generateSVGString(sceneGraph, bounds = { width: 1920, height: 1080 }) {
   const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
-  const bodyMarkup = sceneGraph
+  const topLevel = sceneGraph.filter(el => !el.parentId);
+
+  const bodyMarkup = topLevel
     .map(el => elementToSVG(el, sceneGraphMap))
     .filter(Boolean)
     .join('\n  ');
@@ -114,8 +118,6 @@ export function exportToPNG(sceneGraph, filename = 'design.png', width = 1920, h
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    
-    // Transparent background
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(img, 0, 0);
 
@@ -128,7 +130,7 @@ export function exportToPNG(sceneGraph, filename = 'design.png', width = 1920, h
 }
 
 /**
- * Export JSON project file with versioning
+ * Export JSON project file with schema versioning
  */
 export function exportToJSON(sceneGraph, projectMeta = {}, filename = 'design.json') {
   const data = {
@@ -148,40 +150,54 @@ export function exportToJSON(sceneGraph, projectMeta = {}, filename = 'design.js
 }
 
 /**
- * Import JSON project file with Schema Version Migration
+ * Circular group parent relationship detector
+ */
+function hasCircularGroupReference(elements) {
+  const parentMap = new Map(elements.map(el => [el.id, el.parentId]));
+
+  for (const el of elements) {
+    let currentId = el.id;
+    const visited = new Set();
+
+    while (currentId) {
+      if (visited.has(currentId)) return true; // Cycle detected!
+      visited.add(currentId);
+      currentId = parentMap.get(currentId);
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Import JSON project file with Strict Validation & Schema Migration
  */
 export function importFromJSON(jsonString) {
   try {
     const parsed = JSON.parse(jsonString);
     if (!parsed || typeof parsed !== 'object') {
-      throw new Error('Invalid JSON file format.');
+      throw new Error('Invalid JSON format: payload is not an object.');
     }
 
-    let version = parsed.version || 1;
-    let elements = parsed.elements || [];
-    let project = parsed.project || { name: 'Imported Project' };
-
-    // Migration Pipeline for future schema versions
-    if (version === 1) {
-      // Ensure required default properties exist on all elements
-      elements = elements.map((el, idx) => ({
-        id: el.id || `imported-${idx}-${Date.now()}`,
-        type: el.type || 'rectangle',
-        name: el.name || `${el.type || 'Shape'} ${idx + 1}`,
-        x: Number(el.x) || 0,
-        y: Number(el.y) || 0,
-        width: Number(el.width) || 100,
-        height: Number(el.height) || 100,
-        rotation: Number(el.rotation) || 0,
-        fill: el.fill || '#6366f1',
-        stroke: el.stroke || '#000000',
-        strokeWidth: Number(el.strokeWidth) || 0,
-        opacity: el.opacity !== undefined ? Number(el.opacity) : 1,
-        hidden: Boolean(el.hidden),
-        locked: Boolean(el.locked),
-        ...el,
-      }));
+    let elements = parsed.elements;
+    if (!Array.isArray(elements)) {
+      throw new Error('Invalid JSON format: "elements" must be an array.');
     }
+
+    // Validate elements schema & detect invalid types
+    for (const el of elements) {
+      validateElementSchema(el);
+      if (isNaN(Number(el.x)) || isNaN(Number(el.y)) || isNaN(Number(el.width)) || isNaN(Number(el.height))) {
+        throw new Error(`Element "${el.id}" has invalid numeric geometry coordinates.`);
+      }
+    }
+
+    // Detect circular group relationships
+    if (hasCircularGroupReference(elements)) {
+      throw new Error('Invalid scene graph: detected circular group parent relationship.');
+    }
+
+    const project = parsed.project || { name: 'Imported Project' };
 
     return {
       success: true,

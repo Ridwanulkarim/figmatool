@@ -3,7 +3,7 @@ import { useViewport } from '../hooks/useViewport.js';
 import { useSelection } from '../hooks/useSelection.js';
 import { useClipboard } from '../hooks/useClipboard.js';
 import { useHistory } from '../hooks/useHistory.js';
-import { useInteraction } from '../hooks/useInteraction.js';
+import { useInteraction, collectAllSelectedAndDescendantIds } from '../hooks/useInteraction.js';
 
 import {
   getProjectsList,
@@ -91,10 +91,12 @@ export function EditorProvider({ children }) {
     }
   }, [sceneGraph, viewportControls.viewport, currentProjectId, currentProjectMeta]);
 
-  // Action Helpers
+  // Action Helpers: Recursive Group Deletion
   const handleDeleteSelected = useCallback(() => {
     if (selectionControls.selectedIds.length === 0) return;
-    const toDelete = sceneGraph.filter(el => selectionControls.selectedIds.includes(el.id));
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectionControls.selectedIds, sceneGraph);
+    const toDelete = sceneGraph.filter(el => allTargetIds.has(el.id));
+    
     const command = new DeleteElementsCommand(toDelete);
     const nextGraph = command.execute(sceneGraph);
     historyControls.historyManagerRef.current.push(command);
@@ -103,9 +105,11 @@ export function EditorProvider({ children }) {
     historyControls.triggerHistoryUpdate();
   }, [selectionControls, sceneGraph, historyControls]);
 
+  // Consistent Group Keyboard Nudging (Moves group + all descendants)
   const handleNudge = useCallback((dx, dy) => {
     if (selectionControls.selectedIds.length === 0) return;
-    const oldStates = sceneGraph.filter(el => selectionControls.selectedIds.includes(el.id));
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectionControls.selectedIds, sceneGraph);
+    const oldStates = sceneGraph.filter(el => allTargetIds.has(el.id));
     const newStates = oldStates.map(el => ({
       ...el,
       x: el.x + dx,
@@ -129,6 +133,7 @@ export function EditorProvider({ children }) {
       id: groupId,
       type: 'group',
       name: `Group ${sceneGraph.filter(e => e.type === 'group').length + 1}`,
+      parentId: null,
       x: boundingBox.x,
       y: boundingBox.y,
       width: boundingBox.width,
@@ -272,9 +277,9 @@ export function EditorProvider({ children }) {
 
   const handleUpdateProperties = useCallback((changes) => {
     if (selectionControls.selectedIds.length === 0) return;
-    const previousMap = {};
+    const previousMap = new Map();
     selectionControls.selectedElements.forEach(el => {
-      previousMap[el.id] = { ...el };
+      previousMap.set(el.id, { ...el });
     });
 
     const command = new UpdatePropertiesCommand(selectionControls.selectedIds, changes, previousMap);
@@ -284,19 +289,31 @@ export function EditorProvider({ children }) {
     historyControls.triggerHistoryUpdate();
   }, [selectionControls, sceneGraph, historyControls]);
 
+  // Multi-Selection Layer Block Reordering
   const handleReorderLayer = useCallback((direction) => {
     if (selectionControls.selectedIds.length === 0) return;
     const prevGraph = [...sceneGraph];
-    const nextGraph = [...sceneGraph];
-    const targetId = selectionControls.selectedIds[0];
-    const currentIndex = nextGraph.findIndex(e => e.id === targetId);
-    if (currentIndex === -1) return;
+    const targetSet = new Set(selectionControls.selectedIds);
 
-    const [removed] = nextGraph.splice(currentIndex, 1);
-    if (direction === 'front') nextGraph.push(removed);
-    else if (direction === 'back') nextGraph.unshift(removed);
-    else if (direction === 'forward') nextGraph.splice(Math.min(nextGraph.length, currentIndex + 1), 0, removed);
-    else if (direction === 'backward') nextGraph.splice(Math.max(0, currentIndex - 1), 0, removed);
+    const selectedBlock = sceneGraph.filter(e => targetSet.has(e.id));
+    const remaining = sceneGraph.filter(e => !targetSet.has(e.id));
+
+    let nextGraph = [];
+    if (direction === 'front') {
+      nextGraph = [...remaining, ...selectedBlock];
+    } else if (direction === 'back') {
+      nextGraph = [...selectedBlock, ...remaining];
+    } else if (direction === 'forward') {
+      const firstIdx = sceneGraph.findIndex(e => targetSet.has(e.id));
+      const targetIdx = Math.min(remaining.length, firstIdx + 1);
+      remaining.splice(targetIdx, 0, ...selectedBlock);
+      nextGraph = remaining;
+    } else if (direction === 'backward') {
+      const firstIdx = sceneGraph.findIndex(e => targetSet.has(e.id));
+      const targetIdx = Math.max(0, firstIdx - 1);
+      remaining.splice(targetIdx, 0, ...selectedBlock);
+      nextGraph = remaining;
+    }
 
     const command = new ReorderZIndexCommand(prevGraph, nextGraph);
     historyControls.historyManagerRef.current.push(command);
@@ -356,7 +373,6 @@ export function EditorProvider({ children }) {
   }, [handleSelectProject]);
 
   const value = {
-    // Scene Graph & Selection
     sceneGraph,
     setSceneGraph,
     selectedIds: selectionControls.selectedIds,
@@ -365,7 +381,6 @@ export function EditorProvider({ children }) {
     selectLayer: selectionControls.selectLayer,
     clearSelection: selectionControls.clearSelection,
 
-    // Tools & Theme
     activeTool,
     setActiveTool,
     gridEnabled,
@@ -377,7 +392,6 @@ export function EditorProvider({ children }) {
     contextMenuPos,
     setContextMenuPos,
 
-    // Viewport
     viewport: viewportControls.viewport,
     setViewport: viewportControls.setViewport,
     zoomIn: viewportControls.zoomIn,
@@ -387,13 +401,11 @@ export function EditorProvider({ children }) {
     setZoomLevel: viewportControls.setZoomLevel,
     handleWheelZoom: viewportControls.handleWheelZoom,
 
-    // Commands & History
     canUndo: historyControls.canUndo,
     canRedo: historyControls.canRedo,
     handleUndo: historyControls.handleUndo,
     handleRedo: historyControls.handleRedo,
 
-    // Actions
     handleDeleteSelected,
     handleGroupSelected,
     handleUngroupSelected,
@@ -406,13 +418,11 @@ export function EditorProvider({ children }) {
     handleUpdateProperties,
     handleReorderLayer,
 
-    // Export
     onExportSVG: () => exportToSVG(sceneGraph, `${currentProjectMeta?.name || 'design'}.svg`),
     onExportPNG: () => exportToPNG(sceneGraph, `${currentProjectMeta?.name || 'design'}.png`),
     onExportJSON: () => exportToJSON(sceneGraph, currentProjectMeta, `${currentProjectMeta?.name || 'design'}.json`),
     onImportJSON: handleImportJSON,
 
-    // Projects
     currentProjectMeta,
     projectsList,
     isProjectsModalOpen,
@@ -422,11 +432,9 @@ export function EditorProvider({ children }) {
     handleRenameProject,
     handleDeleteProject,
 
-    // Command Palette
     isCommandPaletteOpen,
     setIsCommandPaletteOpen,
 
-    // Interaction Controls
     interactionControls,
   };
 

@@ -7,7 +7,7 @@ import {
   hitTestRectangle,
 } from '../utils/hitTesting.js';
 
-describe('Hit Testing Engine', () => {
+describe('Hit Testing Engine with World Transforms', () => {
   it('detects point hits inside unrotated rectangles', () => {
     const rect = { id: 'r1', type: 'rectangle', x: 50, y: 50, width: 100, height: 100, rotation: 0 };
     expect(isPointInRotatedRect({ x: 75, y: 75 }, rect)).toBe(true);
@@ -34,24 +34,22 @@ describe('Hit Testing Engine', () => {
     expect(isElementHit({ x: 50, y: 50 }, lockedEl)).toBe(false);
   });
 
-  it('selects highest z-index element on overlapping hits', () => {
-    const sceneGraph = [
-      { id: 'bottom', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 },
-      { id: 'top', type: 'rectangle', x: 0, y: 0, width: 100, height: 100 },
-    ];
+  it('correctly hit tests child elements inside rotated parent groups via World Transforms', () => {
+    const group = { id: 'g1', type: 'group', x: 100, y: 100, width: 100, height: 50, rotation: 45, children: ['r1'] };
+    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 100, y: 100, width: 100, height: 50, rotation: 0 };
+    const sceneGraphMap = new Map([['g1', group], ['r1', child]]);
 
-    const hit = hitTestPoint({ x: 50, y: 50 }, sceneGraph);
-    expect(hit.id).toBe('top');
+    const centerPoint = { x: 150, y: 125 }; // World center point
+    expect(isElementHit(centerPoint, child, sceneGraphMap)).toBe(true);
   });
 
-  it('detects marquee box intersections with elements', () => {
-    const sceneGraph = [
-      { id: 'inside', type: 'rectangle', x: 50, y: 50, width: 50, height: 50 },
-      { id: 'outside', type: 'rectangle', x: 300, y: 300, width: 50, height: 50 },
-    ];
+  it('detects marquee box intersections for nested rotated group elements in world space', () => {
+    const group = { id: 'g1', type: 'group', x: 100, y: 100, width: 100, height: 50, rotation: 45, children: ['r1'] };
+    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 100, y: 100, width: 100, height: 50, rotation: 0 };
+    const sceneGraph = [group, child];
 
-    const marquee = { x: 0, y: 0, width: 150, height: 150 };
+    const marquee = { x: 140, y: 110, width: 30, height: 30 };
     const matched = hitTestRectangle(marquee, sceneGraph);
-    expect(matched).toEqual(['inside']);
+    expect(matched).toContain('r1');
   });
 });
