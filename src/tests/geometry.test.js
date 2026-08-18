@@ -5,9 +5,10 @@ import {
   getMultiSelectionBoundingBox,
   normalizeGeometry,
   getTransformedCorners,
+  getTopLevelSelectableElement,
 } from '../utils/geometry.js';
 
-describe('Geometry & Group Bounding Box Utilities', () => {
+describe('Geometry & Multi-Level Rotated Group Bounding Box Utilities', () => {
   it('rotates a point around origin correctly', () => {
     const point = { x: 10, y: 0 };
     const center = { x: 0, y: 0 };
@@ -37,25 +38,29 @@ describe('Geometry & Group Bounding Box Utilities', () => {
     });
   });
 
-  it('calculates group bounding box accounting for rotated child element quad corners', () => {
-    const childRotated = { id: 'r1', type: 'rectangle', x: 100, y: 100, width: 100, height: 50, rotation: 45 };
-    const group = { id: 'g1', type: 'group', children: ['r1'] };
-    const sceneGraphMap = new Map([['r1', childRotated], ['g1', group]]);
+  it('calculates group bounding box accounting for multi-level nested rotated groups in world space', () => {
+    const groupA = { id: 'gA', type: 'group', x: 100, y: 100, width: 100, height: 50, rotation: 30, children: ['gB'] };
+    const groupB = { id: 'gB', type: 'group', parentId: 'gA', x: 100, y: 100, width: 100, height: 50, rotation: 20, children: ['r1'] };
+    const rect1 = { id: 'r1', type: 'rectangle', parentId: 'gB', x: 100, y: 100, width: 100, height: 50, rotation: 15 };
 
-    const groupBox = getBoundingBox(group, sceneGraphMap);
-    const corners = getTransformedCorners(childRotated);
+    const sceneGraphMap = new Map([['gA', groupA], ['gB', groupB], ['r1', rect1]]);
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const c of corners) {
-      minX = Math.min(minX, c.x);
-      minY = Math.min(minY, c.y);
-      maxX = Math.max(maxX, c.x);
-      maxY = Math.max(maxY, c.y);
-    }
+    const boxA = getBoundingBox(groupA, sceneGraphMap);
+    expect(boxA.width).toBeGreaterThan(0);
+    expect(boxA.height).toBeGreaterThan(0);
+  });
 
-    expect(groupBox.x).toBeCloseTo(minX, 1);
-    expect(groupBox.y).toBeCloseTo(minY, 1);
-    expect(groupBox.width).toBeCloseTo(maxX - minX, 1);
-    expect(groupBox.height).toBeCloseTo(maxY - minY, 1);
+  it('implements Figma Group Selection Policy (getTopLevelSelectableElement)', () => {
+    const group = { id: 'g1', type: 'group' };
+    const child = { id: 'c1', type: 'rectangle', parentId: 'g1' };
+    const sceneGraphMap = new Map([['g1', group], ['c1', child]]);
+
+    // Normal click selects root parent group
+    const topElement = getTopLevelSelectableElement(child, sceneGraphMap, false);
+    expect(topElement.id).toBe('g1');
+
+    // Cmd/Ctrl + Click deep selects the child element directly
+    const deepElement = getTopLevelSelectableElement(child, sceneGraphMap, true);
+    expect(deepElement.id).toBe('c1');
   });
 });

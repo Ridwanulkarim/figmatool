@@ -1,7 +1,14 @@
 import { useState, useRef, useCallback } from 'react';
 import { screenToCanvas } from '../utils/coordinates.js';
 import { hitTestPoint, hitTestRectangle } from '../utils/hitTesting.js';
-import { calculateResize, calculatePointerAngle, calculateRotationDelta } from '../utils/geometry.js';
+import {
+  calculateResize,
+  calculatePointerAngle,
+  calculateRotationDelta,
+  getTopLevelSelectableElement,
+  getMultiSelectionBoundingBox,
+  rotatePoint,
+} from '../utils/geometry.js';
 import { calculateSnapping } from '../utils/snapping.js';
 import { TransformElementsCommand, AddElementsCommand } from '../utils/commands.js';
 
@@ -27,6 +34,7 @@ export function collectAllSelectedAndDescendantIds(selectedIds, sceneGraph) {
 
 /**
  * Custom Hook managing canvas interaction modes ('drag', 'resize', 'rotate', 'marquee', 'pan')
+ * Supports Figma Group Selection Policy & Multi-Object Bounding Box Transformations
  */
 export function useInteraction({
   sceneGraph,
@@ -50,8 +58,9 @@ export function useInteraction({
   const [cursorCanvasPos, setCursorCanvasPos] = useState({ x: 0, y: 0 });
 
   const initialDragStateRef = useRef([]);
-  const initialRotationStateRef = useRef({ initialPointerAngle: 0, initialElementRotation: 0 });
+  const initialRotationStateRef = useRef({ initialPointerAngle: 0, initialElementRotation: 0, center: { x: 0, y: 0 } });
   const activeDragIdsRef = useRef(new Set());
+  const initialBBoxRef = useRef(null);
 
   const spawnShape = useCallback((type, canvasPos) => {
     const shapeCount = sceneGraph.filter(el => el.type === type).length + 1;
@@ -116,21 +125,26 @@ export function useInteraction({
       return;
     }
 
+    const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
     const hitElement = hitTestPoint(canvasPt, sceneGraph);
 
     if (hitElement) {
-      const isAlreadySelected = selectedIds.includes(hitElement.id);
+      // Figma Group Selection Policy: Normal click selects root group, Cmd/Ctrl + Click deep selects child
+      const isDeepSelect = e.metaKey || e.ctrlKey;
+      const targetElement = getTopLevelSelectableElement(hitElement, sceneGraphMap, isDeepSelect);
+
+      const isAlreadySelected = selectedIds.includes(targetElement.id);
       let newSelectedIds = selectedIds;
 
       if (e.shiftKey) {
         if (isAlreadySelected) {
-          newSelectedIds = selectedIds.filter(id => id !== hitElement.id);
+          newSelectedIds = selectedIds.filter(id => id !== targetElement.id);
         } else {
-          newSelectedIds = [...selectedIds, hitElement.id];
+          newSelectedIds = [...selectedIds, targetElement.id];
         }
       } else {
         if (!isAlreadySelected) {
-          newSelectedIds = [hitElement.id];
+          newSelectedIds = [targetElement.id];
         }
       }
 
@@ -138,7 +152,6 @@ export function useInteraction({
       setInteractionMode('drag');
       setDragStartPoint(canvasPt);
 
-      // Collect all selected IDs AND all descendant child IDs recursively!
       const allTargetIds = collectAllSelectedAndDescendantIds(newSelectedIds, sceneGraph);
       activeDragIdsRef.current = allTargetIds;
 
@@ -211,7 +224,6 @@ export function useInteraction({
       const finalDx = snapResult.x - primaryTarget.x;
       const finalDy = snapResult.y - primaryTarget.y;
 
-      // Update positions of both group objects AND all descendant children
       setSceneGraph(prev =>
         prev.map(el => {
           if (activeDragIdsRef.current.has(el.id)) {
@@ -233,42 +245,72 @@ export function useInteraction({
     if (interactionMode === 'resize' && activeHandle) {
       const dx = canvasPt.x - dragStartPoint.x;
       const dy = canvasPt.y - dragStartPoint.y;
-      const target = initialDragStateRef.current[0];
-      if (!target) return;
+      const initialBBox = initialBBoxRef.current;
+      if (!initialBBox) return;
 
-      const resized = calculateResize({
-        element: target,
+      const resizedBBox = calculateResize({
+        element: initialBBox,
         handle: activeHandle,
         dx,
         dy,
         keepAspectRatio: e.shiftKey,
       });
 
+      const scaleX = resizedBBox.width / (initialBBox.width || 1);
+      const scaleY = resizedBBox.height / (initialBBox.height || 1);
+
       setSceneGraph(prev =>
-        prev.map(el => (el.id === target.id ? { ...el, ...resized } : el))
+        prev.map(el => {
+          if (activeDragIdsRef.current.has(el.id)) {
+            const initial = initialDragStateRef.current.find(it => it.id === el.id);
+            if (initial) {
+              const relX = initial.x - initialBBox.x;
+              const relY = initial.y - initialBBox.y;
+              return {
+                ...el,
+                x: resizedBBox.x + relX * scaleX,
+                y: resizedBBox.y + relY * scaleY,
+                width: Math.max(5, initial.width * scaleX),
+                height: Math.max(5, initial.height * scaleY),
+              };
+            }
+          }
+          return el;
+        })
       );
       return;
     }
 
     if (interactionMode === 'rotate') {
-      const target = initialDragStateRef.current[0];
-      if (!target) return;
-
-      const center = {
-        x: target.x + target.width / 2,
-        y: target.y + target.height / 2,
-      };
-
-      const rotation = calculateRotationDelta({
+      const center = initialRotationStateRef.current.center;
+      const rotationDelta = calculateRotationDelta({
         elementCenter: center,
         currentPointerPos: canvasPt,
         initialPointerAngle: initialRotationStateRef.current.initialPointerAngle,
-        initialElementRotation: initialRotationStateRef.current.initialElementRotation,
+        initialElementRotation: 0,
         snapShift: e.shiftKey,
       });
 
       setSceneGraph(prev =>
-        prev.map(el => (el.id === target.id ? { ...el, rotation } : el))
+        prev.map(el => {
+          if (activeDragIdsRef.current.has(el.id)) {
+            const initial = initialDragStateRef.current.find(it => it.id === el.id);
+            if (initial) {
+              const elementCenter = {
+                x: initial.x + initial.width / 2,
+                y: initial.y + initial.height / 2,
+              };
+              const rotatedCenter = rotatePoint(elementCenter.x, elementCenter.y, center.x, center.y, rotationDelta);
+              return {
+                ...el,
+                x: rotatedCenter.x - initial.width / 2,
+                y: rotatedCenter.y - initial.height / 2,
+                rotation: ((initial.rotation || 0) + rotationDelta) % 360,
+              };
+            }
+          }
+          return el;
+        })
       );
     }
   }, [interactionMode, dragStartPoint, viewport, setViewport, sceneGraph, setSceneGraph, selectedIds, setSelectedIds, activeHandle, gridEnabled]);
@@ -298,38 +340,54 @@ export function useInteraction({
     setAlignmentGuides([]);
     initialDragStateRef.current = [];
     activeDragIdsRef.current = new Set();
-    initialRotationStateRef.current = { initialPointerAngle: 0, initialElementRotation: 0 };
+    initialBBoxRef.current = null;
+    initialRotationStateRef.current = { initialPointerAngle: 0, initialElementRotation: 0, center: { x: 0, y: 0 } };
   }, [interactionMode, sceneGraph, selectedIds, historyManagerRef, triggerHistoryUpdate]);
 
   const handleHandlePointerDown = useCallback((e, handleId, selectedElements) => {
     const canvasBounds = e.currentTarget.getBoundingClientRect();
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
+    const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
+
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
+    activeDragIdsRef.current = allTargetIds;
+
+    const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
+    initialDragStateRef.current = targets.map(el => ({ ...el }));
+    initialBBoxRef.current = getMultiSelectionBoundingBox(selectedElements, sceneGraphMap);
+
     setInteractionMode('resize');
     setActiveHandle(handleId);
     setDragStartPoint(canvasPt);
-    initialDragStateRef.current = selectedElements.map(el => ({ ...el }));
-  }, [viewport]);
+  }, [viewport, sceneGraph]);
 
   const handleRotatePointerDown = useCallback((e, selectedElements) => {
     const canvasBounds = e.currentTarget.getBoundingClientRect();
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
+    const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
+
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
+    activeDragIdsRef.current = allTargetIds;
+
+    const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
+    initialDragStateRef.current = targets.map(el => ({ ...el }));
+
+    const bbox = getMultiSelectionBoundingBox(selectedElements, sceneGraphMap);
+    const center = {
+      x: bbox.x + bbox.width / 2,
+      y: bbox.y + bbox.height / 2,
+    };
+
+    const initialAngle = calculatePointerAngle(center, canvasPt);
+    initialRotationStateRef.current = {
+      initialPointerAngle: initialAngle,
+      initialElementRotation: 0,
+      center,
+    };
+
     setInteractionMode('rotate');
     setDragStartPoint(canvasPt);
-
-    const target = selectedElements[0];
-    if (target) {
-      const center = {
-        x: target.x + target.width / 2,
-        y: target.y + target.height / 2,
-      };
-      const initialAngle = calculatePointerAngle(center, canvasPt);
-      initialRotationStateRef.current = {
-        initialPointerAngle: initialAngle,
-        initialElementRotation: target.rotation || 0,
-      };
-    }
-    initialDragStateRef.current = selectedElements.map(el => ({ ...el }));
-  }, [viewport]);
+  }, [viewport, sceneGraph]);
 
   return {
     interactionMode,

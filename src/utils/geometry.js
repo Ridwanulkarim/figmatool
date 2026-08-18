@@ -1,7 +1,7 @@
 /**
  * Geometry and Math Utility Functions for Vector Engine
  * Pure JS, decoupled from React rendering.
- * Implements World Space Transformation Matrices for Nested Groups.
+ * Implements World Space Transformation Matrices and Figma Selection Policy.
  */
 
 export const degToRad = (deg) => (deg * Math.PI) / 180;
@@ -41,13 +41,32 @@ export function getAncestorGroups(element, sceneGraphMap = new Map()) {
 }
 
 /**
+ * Traverses up parentId links to find the top-most root parent group
+ * If deepSelect is true (Cmd/Ctrl + Click), returns the immediate element directly.
+ */
+export function getTopLevelSelectableElement(element, sceneGraphMap = new Map(), deepSelect = false) {
+  if (!element || deepSelect) return element;
+
+  let current = element;
+  while (current && current.parentId) {
+    const parent = sceneGraphMap.get(current.parentId);
+    if (parent) {
+      current = parent;
+    } else {
+      break;
+    }
+  }
+
+  return current;
+}
+
+/**
  * Transform a world canvas point into an element's local coordinate space by un-rotating through ancestor group matrices
  */
 export function transformPointToLocalSpace(point, element, sceneGraphMap = new Map()) {
   const ancestors = getAncestorGroups(element, sceneGraphMap);
   let localPt = { ...point };
 
-  // Apply inverse transforms from root group down to immediate parent
   for (const parentGroup of ancestors) {
     if (parentGroup.rotation) {
       const cx = parentGroup.x + parentGroup.width / 2;
@@ -85,7 +104,6 @@ export function getWorldTransformedCorners(element, sceneGraphMap = new Map()) {
   let corners = getLocalCorners(element);
   const ancestors = getAncestorGroups(element, sceneGraphMap);
 
-  // Apply parent group transforms from immediate parent up to root group
   for (let i = ancestors.length - 1; i >= 0; i--) {
     const parentGroup = ancestors[i];
     if (parentGroup.rotation) {
@@ -98,16 +116,13 @@ export function getWorldTransformedCorners(element, sceneGraphMap = new Map()) {
   return corners;
 }
 
-/**
- * Backward compatible transformed corners helper
- */
 export function getTransformedCorners(element) {
   return getLocalCorners(element);
 }
 
 /**
  * Get axis-aligned bounding box (AABB) for a single element or group
- * Accurately accounts for rotated child element quad corners!
+ * Consistently uses World Transformed Quad Corners for all group children!
  */
 export function getBoundingBox(element, sceneGraphMap = new Map()) {
   if (!element) return { x: 0, y: 0, width: 0, height: 0 };
@@ -124,20 +139,13 @@ export function getBoundingBox(element, sceneGraphMap = new Map()) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (const child of children) {
-      if (child.rotation) {
-        const corners = getTransformedCorners(child);
-        for (const c of corners) {
-          minX = Math.min(minX, c.x);
-          minY = Math.min(minY, c.y);
-          maxX = Math.max(maxX, c.x);
-          maxY = Math.max(maxY, c.y);
-        }
-      } else {
-        const box = getBoundingBox(child, sceneGraphMap);
-        minX = Math.min(minX, box.x);
-        minY = Math.min(minY, box.y);
-        maxX = Math.max(maxX, box.x + box.width);
-        maxY = Math.max(maxY, box.y + box.height);
+      // Consistently use World Space Quad Corners for every child and nested child group!
+      const corners = getWorldTransformedCorners(child, sceneGraphMap);
+      for (const c of corners) {
+        minX = Math.min(minX, c.x);
+        minY = Math.min(minY, c.y);
+        maxX = Math.max(maxX, c.x);
+        maxY = Math.max(maxY, c.y);
       }
     }
 
