@@ -2,7 +2,8 @@
 
 🌐 **Live Application Demo**: [https://figmatool.vercel.app/](https://figmatool.vercel.app/)
 
-VectorCraft is an advanced browser-based **Figma-inspired vector design editor** built with React, Vite, Tailwind CSS, and SVG rendering. It features a decoupled scene graph, modular custom hooks architecture, command-based undo/redo history, smart object snapping, nested grouping, inspector breadcrumbs, spotlight command palette, and a 6-suite automated unit test engine.
+VectorCraft is an advanced browser-based **Figma-inspired vector design editor** built with React, Vite, Tailwind CSS, and an SVG-based scene graph renderer driven by React state. It features Model A local coordinate architecture, custom hooks, command-based undo/redo history, smart object snapping, nested grouping, inspector breadcrumbs, spotlight command palette, and a 6-suite automated unit test engine.
+
 
 
 ---

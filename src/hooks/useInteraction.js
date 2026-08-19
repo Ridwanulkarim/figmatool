@@ -13,7 +13,7 @@ import { calculateSnapping } from '../utils/snapping.js';
 import { TransformElementsCommand, AddElementsCommand } from '../utils/commands.js';
 
 /**
- * Helper to recursively gather all selected IDs and all descendant child IDs
+ * Helper to gather top-level selected element IDs and descendant child IDs for hierarchy operations
  */
 export function collectAllSelectedAndDescendantIds(selectedIds, sceneGraph) {
   const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
@@ -34,7 +34,7 @@ export function collectAllSelectedAndDescendantIds(selectedIds, sceneGraph) {
 
 /**
  * Custom Hook managing canvas interaction modes ('drag', 'resize', 'rotate', 'marquee', 'pan')
- * Supports Figma Group Selection Policy & Multi-Object Bounding Box Transformations
+ * Implements Model A Local Coordinate Architecture
  */
 export function useInteraction({
   sceneGraph,
@@ -129,7 +129,6 @@ export function useInteraction({
     const hitElement = hitTestPoint(canvasPt, sceneGraph);
 
     if (hitElement) {
-      // Figma Group Selection Policy: Normal click selects root group, Cmd/Ctrl + Click deep selects child
       const isDeepSelect = e.metaKey || e.ctrlKey;
       const targetElement = getTopLevelSelectableElement(hitElement, sceneGraphMap, isDeepSelect);
 
@@ -152,10 +151,10 @@ export function useInteraction({
       setInteractionMode('drag');
       setDragStartPoint(canvasPt);
 
-      const allTargetIds = collectAllSelectedAndDescendantIds(newSelectedIds, sceneGraph);
-      activeDragIdsRef.current = allTargetIds;
+      // Model A: Drag top-level selected elements only; children move via SVG parent transform
+      activeDragIdsRef.current = new Set(newSelectedIds);
 
-      const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
+      const targets = sceneGraph.filter(el => newSelectedIds.includes(el.id));
       initialDragStateRef.current = targets.map(el => ({ ...el }));
     } else {
       if (!e.shiftKey) {
@@ -224,6 +223,7 @@ export function useInteraction({
       const finalDx = snapResult.x - primaryTarget.x;
       const finalDy = snapResult.y - primaryTarget.y;
 
+      // Model A: Move top-level selected elements
       setSceneGraph(prev =>
         prev.map(el => {
           if (activeDragIdsRef.current.has(el.id)) {
@@ -349,7 +349,7 @@ export function useInteraction({
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
     const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
-    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
+    const allTargetIds = new Set(selectedElements.map(e => e.id));
     activeDragIdsRef.current = allTargetIds;
 
     const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
@@ -366,7 +366,7 @@ export function useInteraction({
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
     const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
-    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
+    const allTargetIds = new Set(selectedElements.map(e => e.id));
     activeDragIdsRef.current = allTargetIds;
 
     const targets = sceneGraph.filter(el => allTargetIds.has(el.id));

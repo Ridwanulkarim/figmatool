@@ -14,6 +14,7 @@ import StatusBar from './components/StatusBar/StatusBar.jsx';
 
 import { hitTestPoint } from './utils/hitTesting.js';
 import { screenToCanvas } from './utils/coordinates.js';
+import { CheckCircle2 } from 'lucide-react';
 
 function EditorLayout() {
   const {
@@ -32,6 +33,8 @@ function EditorLayout() {
     setEditingTextElement,
     contextMenuPos,
     setContextMenuPos,
+    saveNotification,
+    handleSaveProject,
     viewport,
     zoomIn,
     zoomOut,
@@ -90,7 +93,7 @@ function EditorLayout() {
         currentProject={currentProjectMeta}
         onOpenProjects={() => setIsProjectsModalOpen(true)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-        onSave={() => {}}
+        onSave={handleSaveProject}
         canUndo={canUndo}
         canRedo={canRedo}
         onUndo={handleUndo}
@@ -171,6 +174,14 @@ function EditorLayout() {
               />
             )}
           </SVGCanvas>
+
+          {/* Toast Notification */}
+          {saveNotification && (
+            <div className="absolute top-4 right-4 z-50 bg-indigo-600 text-white px-3.5 py-2 rounded-lg shadow-xl text-xs font-medium flex items-center space-x-2 animate-bounce">
+              <CheckCircle2 size={16} />
+              <span>{saveNotification}</span>
+            </div>
+          )}
         </div>
 
         {/* Properties Inspector Panel */}

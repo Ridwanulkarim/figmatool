@@ -1,7 +1,7 @@
 /**
  * Command-Based History System for Vector Editor Engine
  * Implements Command Pattern with execute(), undo(), redo()
- * Transacts atomic operations without duplicating full scene snapshots on every pointer move.
+ * Supports Model A Local Coordinate Architecture for Groups
  */
 
 export class Command {
@@ -67,7 +67,6 @@ export class DeleteElementsCommand extends Command {
 
 /**
  * Command for position/size/rotation transforms (Move, Resize, Rotate)
- * Stores pre-transform states and post-transform states
  */
 export class TransformElementsCommand extends Command {
   constructor(oldStates, newStates) {
@@ -97,7 +96,6 @@ export class TransformElementsCommand extends Command {
 
 /**
  * Command for property updates (e.g. fill, stroke, opacity, text, font)
- * Standardized using ES6 Map for previousValuesMap
  */
 export class UpdatePropertiesCommand extends Command {
   constructor(elementIds, changes, previousValuesMap) {
@@ -105,7 +103,6 @@ export class UpdatePropertiesCommand extends Command {
     this.elementIds = Array.isArray(elementIds) ? elementIds : [elementIds];
     this.changes = changes;
     
-    // Normalize to ES6 Map
     if (previousValuesMap instanceof Map) {
       this.previousValuesMap = previousValuesMap;
     } else {
@@ -135,7 +132,7 @@ export class UpdatePropertiesCommand extends Command {
 }
 
 /**
- * Command for Grouping elements (Option B: Flat Scene Graph with parentId)
+ * Command for Grouping elements (Model A: Converts child world coordinates to local coordinates)
  */
 export class GroupElementsCommand extends Command {
   constructor(groupElement, childElements) {
@@ -148,15 +145,22 @@ export class GroupElementsCommand extends Command {
     const childIds = new Set(this.childElements.map(c => c.id));
     const firstChildIndex = sceneGraph.findIndex(el => childIds.has(el.id));
 
-    // Update parentId on child elements while retaining them in sceneGraph
+    // Convert child elements to local coordinates relative to group (x, y)
     const nextGraph = sceneGraph.map(el => {
       if (childIds.has(el.id)) {
-        return { ...el, parentId: this.groupElement.id };
+        const isAlreadyChild = Boolean(el.parentId);
+        const localX = isAlreadyChild ? el.x : el.x - this.groupElement.x;
+        const localY = isAlreadyChild ? el.y : el.y - this.groupElement.y;
+        return {
+          ...el,
+          x: localX,
+          y: localY,
+          parentId: this.groupElement.id,
+        };
       }
       return el;
     });
 
-    // Insert group object at position of top child
     const insertIndex = firstChildIndex >= 0 ? firstChildIndex : nextGraph.length;
     nextGraph.splice(insertIndex, 0, this.groupElement);
     return nextGraph;
@@ -165,12 +169,17 @@ export class GroupElementsCommand extends Command {
   undo(sceneGraph) {
     const childIds = new Set(this.childElements.map(c => c.id));
     
-    // Remove group element and clear parentId on children
+    // Restore child elements to world coordinates and remove group
     return sceneGraph
       .filter(el => el.id !== this.groupElement.id)
       .map(el => {
         if (childIds.has(el.id)) {
-          return { ...el, parentId: el.parentId === this.groupElement.id ? null : el.parentId };
+          return {
+            ...el,
+            x: el.x + this.groupElement.x,
+            y: el.y + this.groupElement.y,
+            parentId: el.parentId === this.groupElement.id ? null : el.parentId,
+          };
         }
         return el;
       });
@@ -178,7 +187,7 @@ export class GroupElementsCommand extends Command {
 }
 
 /**
- * Command for Ungrouping element (Option B: Flat Scene Graph with parentId)
+ * Command for Ungrouping element (Model A: Converts child local coordinates back to world coordinates)
  */
 export class UngroupElementsCommand extends Command {
   constructor(groupElement, childElements) {
@@ -190,12 +199,17 @@ export class UngroupElementsCommand extends Command {
   execute(sceneGraph) {
     const childIds = new Set(this.childElements.map(c => c.id));
     
-    // Remove group element and clear parentId on children
+    // Convert child elements to world coordinates and remove group
     return sceneGraph
       .filter(el => el.id !== this.groupElement.id)
       .map(el => {
         if (childIds.has(el.id)) {
-          return { ...el, parentId: null };
+          return {
+            ...el,
+            x: this.groupElement.x + el.x,
+            y: this.groupElement.y + el.y,
+            parentId: null,
+          };
         }
         return el;
       });
@@ -207,7 +221,12 @@ export class UngroupElementsCommand extends Command {
 
     const nextGraph = sceneGraph.map(el => {
       if (childIds.has(el.id)) {
-        return { ...el, parentId: this.groupElement.id };
+        return {
+          ...el,
+          x: el.x - this.groupElement.x,
+          y: el.y - this.groupElement.y,
+          parentId: this.groupElement.id,
+        };
       }
       return el;
     });

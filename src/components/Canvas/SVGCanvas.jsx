@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 
 /**
  * Pure SVG Scene Graph Renderer
- * Supports Option B Flat Scene Graph with parentId links & nested groups
+ * Supports Model A Local Coordinate Architecture & Nested Group Transforms
  */
 function RenderElement({ element, sceneGraphMap }) {
   if (!element || element.hidden) return null;
@@ -94,8 +94,11 @@ function RenderElement({ element, sceneGraphMap }) {
 
     case 'group':
       if (!element.children || element.children.length === 0) return null;
+      // Model A: Group defines local coordinate frame via translate(x, y) and rotate(deg)
+      const groupTransform = `translate(${x}, ${y}) ${rotation ? `rotate(${rotation} ${width / 2} ${height / 2})` : ''}`;
+
       return (
-        <g id={id} opacity={opacity} transform={transform}>
+        <g id={id} opacity={opacity} transform={groupTransform.trim()}>
           {element.children.map(childId => {
             const child = sceneGraphMap.get(childId);
             return child ? (

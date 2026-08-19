@@ -8,7 +8,7 @@ import {
 } from '../utils/commands.js';
 import { collectAllSelectedAndDescendantIds } from '../hooks/useInteraction.js';
 
-describe('Command Pattern History Manager & Group Hierarchy Operations', () => {
+describe('Command Pattern History Manager & Model A Local Coordinates', () => {
   it('pushes commands and manages undo/redo stack', () => {
     const history = new HistoryManager(10);
     let scene = [];
@@ -30,63 +30,47 @@ describe('Command Pattern History Manager & Group Hierarchy Operations', () => {
     expect(scene.length).toBe(1);
   });
 
-  it('recursively gathers all descendant child IDs for group operations', () => {
-    const sceneGraph = [
-      { id: 'g1', type: 'group', children: ['g2', 'c1'] },
-      { id: 'g2', type: 'group', parentId: 'g1', children: ['r1'] },
-      { id: 'r1', type: 'rectangle', parentId: 'g2', x: 0, y: 0 },
-      { id: 'c1', type: 'circle', parentId: 'g1', x: 50, y: 50 },
-    ];
-
-    const allIds = collectAllSelectedAndDescendantIds(['g1'], sceneGraph);
-    expect(allIds.has('g1')).toBe(true);
-    expect(allIds.has('g2')).toBe(true);
-    expect(allIds.has('r1')).toBe(true);
-    expect(allIds.has('c1')).toBe(true);
-    expect(allIds.size).toBe(4);
-  });
-
-  it('deletes group and all descendant children recursively and restores hierarchy on undo', () => {
+  it('converts child world coordinates to local coordinates on grouping and restores on undo', () => {
     const history = new HistoryManager(10);
-    let sceneGraph = [
-      { id: 'g1', type: 'group', children: ['r1', 'c1'] },
-      { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 10 },
-      { id: 'c1', type: 'circle', parentId: 'g1', x: 50, y: 50 },
+    let scene = [
+      { id: 'r1', type: 'rectangle', x: 10, y: 10, width: 100, height: 50 },
+      { id: 'c1', type: 'circle', x: 50, y: 50, width: 50, height: 50 },
     ];
 
-    const allTargetIds = collectAllSelectedAndDescendantIds(['g1'], sceneGraph);
-    const toDelete = sceneGraph.filter(el => allTargetIds.has(el.id));
-    const deleteCmd = new DeleteElementsCommand(toDelete);
+    const group = { id: 'g1', type: 'group', x: 10, y: 10, width: 90, height: 90, children: ['r1', 'c1'] };
+    const groupCmd = new GroupElementsCommand(group, scene);
 
-    sceneGraph = deleteCmd.execute(sceneGraph);
-    history.push(deleteCmd);
+    scene = groupCmd.execute(scene);
+    history.push(groupCmd);
 
-    // Completely deleted without orphaned children!
-    expect(sceneGraph.length).toBe(0);
+    // Child r1 local x = 10 - 10 = 0
+    expect(scene.find(e => e.id === 'r1').x).toBe(0);
+    expect(scene.find(e => e.id === 'r1').parentId).toBe('g1');
 
-    // Undo restores full hierarchy cleanly
-    sceneGraph = history.undo(sceneGraph);
-    expect(sceneGraph.length).toBe(3);
-    expect(sceneGraph.find(e => e.id === 'r1').parentId).toBe('g1');
+    // Undo restores world coordinate r1 x = 10
+    scene = history.undo(scene);
+    expect(scene.find(e => e.id === 'r1').x).toBe(10);
+    expect(scene.find(e => e.id === 'r1').parentId).toBeNull();
   });
 
-  it('transforms group and all descendant children simultaneously during arrow key nudging', () => {
+  it('Model A group drag: moving group updates group position while child local position remains static', () => {
     const history = new HistoryManager(10);
     let scene = [
       { id: 'g1', type: 'group', x: 0, y: 0, children: ['r1'] },
       { id: 'r1', type: 'rectangle', parentId: 'g1', x: 10, y: 10 },
     ];
 
-    const allTargetIds = collectAllSelectedAndDescendantIds(['g1'], scene);
-    const oldStates = scene.filter(e => allTargetIds.has(e.id)).map(e => ({ ...e }));
-    const newStates = oldStates.map(e => ({ ...e, x: e.x + 10, y: e.y + 10 }));
+    const oldStates = scene.filter(e => e.id === 'g1').map(e => ({ ...e }));
+    const newStates = oldStates.map(e => ({ ...e, x: e.x + 50, y: e.y + 50 }));
 
-    const nudgeCmd = new TransformElementsCommand(oldStates, newStates);
-    scene = nudgeCmd.execute(scene);
-    history.push(nudgeCmd);
+    const moveCmd = new TransformElementsCommand(oldStates, newStates);
+    scene = moveCmd.execute(scene);
+    history.push(moveCmd);
 
-    expect(scene.find(e => e.id === 'g1').x).toBe(10);
-    expect(scene.find(e => e.id === 'r1').x).toBe(20);
+    // Group moved to 50
+    expect(scene.find(e => e.id === 'g1').x).toBe(50);
+    // Child local x remains static at 10 (rendered inside <g transform="translate(50, 50)">)
+    expect(scene.find(e => e.id === 'r1').x).toBe(10);
 
     scene = history.undo(scene);
     expect(scene.find(e => e.id === 'g1').x).toBe(0);

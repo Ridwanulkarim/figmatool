@@ -34,6 +34,7 @@ export function EditorProvider({ children }) {
   const [projectsList, setProjectsList] = useState([]);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [saveNotification, setSaveNotification] = useState(null);
 
   // Editor State
   const [sceneGraph, setSceneGraph] = useState([]);
@@ -84,12 +85,14 @@ export function EditorProvider({ children }) {
     setProjectsList(getProjectsList());
   }, []);
 
-  // Autosave
-  useEffect(() => {
+  // Explicit Save Handler with Toast Notification
+  const handleSaveProject = useCallback(() => {
     if (currentProjectId && currentProjectMeta) {
       saveProject(currentProjectId, currentProjectMeta, sceneGraph, viewportControls.viewport);
+      setSaveNotification('Project saved successfully!');
+      setTimeout(() => setSaveNotification(null), 2500);
     }
-  }, [sceneGraph, viewportControls.viewport, currentProjectId, currentProjectMeta]);
+  }, [currentProjectId, currentProjectMeta, sceneGraph, viewportControls.viewport]);
 
   // Action Helpers: Recursive Group Deletion
   const handleDeleteSelected = useCallback(() => {
@@ -105,11 +108,10 @@ export function EditorProvider({ children }) {
     historyControls.triggerHistoryUpdate();
   }, [selectionControls, sceneGraph, historyControls]);
 
-  // Consistent Group Keyboard Nudging (Moves group + all descendants)
+  // Model A Nudging (Moves top-level selected elements)
   const handleNudge = useCallback((dx, dy) => {
     if (selectionControls.selectedIds.length === 0) return;
-    const allTargetIds = collectAllSelectedAndDescendantIds(selectionControls.selectedIds, sceneGraph);
-    const oldStates = sceneGraph.filter(el => allTargetIds.has(el.id));
+    const oldStates = sceneGraph.filter(el => selectionControls.selectedIds.includes(el.id));
     const newStates = oldStates.map(el => ({
       ...el,
       x: el.x + dx,
@@ -166,12 +168,6 @@ export function EditorProvider({ children }) {
     selectionControls.setSelectedIds(childElements.map(c => c.id));
     historyControls.triggerHistoryUpdate();
   }, [selectionControls, sceneGraph, historyControls]);
-
-  const handleSaveProject = useCallback(() => {
-    if (currentProjectId && currentProjectMeta) {
-      saveProject(currentProjectId, currentProjectMeta, sceneGraph, viewportControls.viewport);
-    }
-  }, [currentProjectId, currentProjectMeta, sceneGraph, viewportControls.viewport]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -391,6 +387,7 @@ export function EditorProvider({ children }) {
     setEditingTextElement,
     contextMenuPos,
     setContextMenuPos,
+    saveNotification,
 
     viewport: viewportControls.viewport,
     setViewport: viewportControls.setViewport,
@@ -406,6 +403,7 @@ export function EditorProvider({ children }) {
     handleUndo: historyControls.handleUndo,
     handleRedo: historyControls.handleRedo,
 
+    handleSaveProject,
     handleDeleteSelected,
     handleGroupSelected,
     handleUngroupSelected,
