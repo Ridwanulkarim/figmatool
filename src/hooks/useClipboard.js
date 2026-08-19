@@ -2,8 +2,8 @@ import { useState, useCallback } from 'react';
 import { AddElementsCommand } from '../utils/commands.js';
 
 /**
- * Recursive Deep Clone Helper for Group Copy & Paste
- * Generates unique IDs, remaps children arrays and parentId links, and offsets positions.
+ * Recursive Deep Clone Helper for Group Copy & Paste (Model A Local Coordinates)
+ * Generates unique IDs, remaps children arrays and parentId links, and offsets top-level elements.
  */
 export function deepCloneElements(elementsToClone, sceneGraph, offset = 20) {
   const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
@@ -30,19 +30,27 @@ export function deepCloneElements(elementsToClone, sceneGraph, offset = 20) {
     idMap.set(el.id, `${el.type}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
   });
 
-  // 3. Construct cloned elements with remapped IDs and parentId links
+  const clonedIdSet = new Set(allElements.map(e => e.id));
+
+  // 3. Construct cloned elements with remapped IDs, parentId links, and position offsets
   const clonedElements = allElements.map(el => {
     const newId = idMap.get(el.id);
-    const newParentId = el.parentId && idMap.has(el.parentId) ? idMap.get(el.parentId) : null;
+    const hasClonedParent = el.parentId && clonedIdSet.has(el.parentId);
+    const newParentId = hasClonedParent ? idMap.get(el.parentId) : el.parentId;
     const newName = `${el.name || el.type} (Copy)`;
+
+    // Model A: Only offset top-level cloned elements. Children retain local (x, y) relative to parent!
+    const isTopLevelInClone = !hasClonedParent;
+    const posX = isTopLevelInClone ? el.x + offset : el.x;
+    const posY = isTopLevelInClone ? el.y + offset : el.y;
 
     const cloned = {
       ...el,
       id: newId,
       name: newName,
       parentId: newParentId,
-      x: el.x + offset,
-      y: el.y + offset,
+      x: posX,
+      y: posY,
     };
 
     if (el.type === 'group' && el.children) {

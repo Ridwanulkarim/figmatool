@@ -264,15 +264,27 @@ export function useInteraction({
           if (activeDragIdsRef.current.has(el.id)) {
             const initial = initialDragStateRef.current.find(it => it.id === el.id);
             if (initial) {
-              const relX = initial.x - initialBBox.x;
-              const relY = initial.y - initialBBox.y;
-              return {
-                ...el,
-                x: resizedBBox.x + relX * scaleX,
-                y: resizedBBox.y + relY * scaleY,
-                width: Math.max(5, initial.width * scaleX),
-                height: Math.max(5, initial.height * scaleY),
-              };
+              const isTopLevelInSelection = selectedIds.includes(el.id);
+              if (isTopLevelInSelection) {
+                const relX = initial.x - initialBBox.x;
+                const relY = initial.y - initialBBox.y;
+                return {
+                  ...el,
+                  x: resizedBBox.x + relX * scaleX,
+                  y: resizedBBox.y + relY * scaleY,
+                  width: Math.max(5, initial.width * scaleX),
+                  height: Math.max(5, initial.height * scaleY),
+                };
+              } else {
+                // Descendant child in group: scale local coordinates relative to parent group
+                return {
+                  ...el,
+                  x: initial.x * scaleX,
+                  y: initial.y * scaleY,
+                  width: Math.max(5, initial.width * scaleX),
+                  height: Math.max(5, initial.height * scaleY),
+                };
+              }
             }
           }
           return el;
@@ -296,17 +308,20 @@ export function useInteraction({
           if (activeDragIdsRef.current.has(el.id)) {
             const initial = initialDragStateRef.current.find(it => it.id === el.id);
             if (initial) {
-              const elementCenter = {
-                x: initial.x + initial.width / 2,
-                y: initial.y + initial.height / 2,
-              };
-              const rotatedCenter = rotatePoint(elementCenter.x, elementCenter.y, center.x, center.y, rotationDelta);
-              return {
-                ...el,
-                x: rotatedCenter.x - initial.width / 2,
-                y: rotatedCenter.y - initial.height / 2,
-                rotation: ((initial.rotation || 0) + rotationDelta) % 360,
-              };
+              const isTopLevelInSelection = selectedIds.includes(el.id);
+              if (isTopLevelInSelection) {
+                const elementCenter = {
+                  x: initial.x + initial.width / 2,
+                  y: initial.y + initial.height / 2,
+                };
+                const rotatedCenter = rotatePoint(elementCenter.x, elementCenter.y, center.x, center.y, rotationDelta);
+                return {
+                  ...el,
+                  x: rotatedCenter.x - initial.width / 2,
+                  y: rotatedCenter.y - initial.height / 2,
+                  rotation: ((initial.rotation || 0) + rotationDelta) % 360,
+                };
+              }
             }
           }
           return el;
@@ -349,7 +364,7 @@ export function useInteraction({
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
     const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
-    const allTargetIds = new Set(selectedElements.map(e => e.id));
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
     activeDragIdsRef.current = allTargetIds;
 
     const targets = sceneGraph.filter(el => allTargetIds.has(el.id));
@@ -366,7 +381,7 @@ export function useInteraction({
     const canvasPt = screenToCanvas({ x: e.clientX, y: e.clientY }, viewport, canvasBounds);
     const sceneGraphMap = new Map(sceneGraph.map(el => [el.id, el]));
 
-    const allTargetIds = new Set(selectedElements.map(e => e.id));
+    const allTargetIds = collectAllSelectedAndDescendantIds(selectedElements.map(e => e.id), sceneGraph);
     activeDragIdsRef.current = allTargetIds;
 
     const targets = sceneGraph.filter(el => allTargetIds.has(el.id));

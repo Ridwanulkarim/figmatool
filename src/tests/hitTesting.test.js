@@ -3,11 +3,10 @@ import {
   isPointInRotatedRect,
   isPointInEllipse,
   isElementHit,
-  hitTestPoint,
   hitTestRectangle,
 } from '../utils/hitTesting.js';
 
-describe('Hit Testing Engine with World Transforms', () => {
+describe('Hit Testing Engine with Model A World Transforms', () => {
   it('detects point hits inside unrotated rectangles', () => {
     const rect = { id: 'r1', type: 'rectangle', x: 50, y: 50, width: 100, height: 100, rotation: 0 };
     expect(isPointInRotatedRect({ x: 75, y: 75 }, rect)).toBe(true);
@@ -36,7 +35,8 @@ describe('Hit Testing Engine with World Transforms', () => {
 
   it('correctly hit tests child elements inside rotated parent groups via World Transforms', () => {
     const group = { id: 'g1', type: 'group', x: 100, y: 100, width: 100, height: 50, rotation: 45, children: ['r1'] };
-    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 100, y: 100, width: 100, height: 50, rotation: 0 };
+    // Model A local coordinates: child is at (0, 0) relative to parent group g1 (100, 100)
+    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 0, y: 0, width: 100, height: 50, rotation: 0 };
     const sceneGraphMap = new Map([['g1', group], ['r1', child]]);
 
     const centerPoint = { x: 150, y: 125 }; // World center point
@@ -45,7 +45,7 @@ describe('Hit Testing Engine with World Transforms', () => {
 
   it('detects marquee box intersections for nested rotated group elements in world space', () => {
     const group = { id: 'g1', type: 'group', x: 100, y: 100, width: 100, height: 50, rotation: 45, children: ['r1'] };
-    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 100, y: 100, width: 100, height: 50, rotation: 0 };
+    const child = { id: 'r1', type: 'rectangle', parentId: 'g1', x: 0, y: 0, width: 100, height: 50, rotation: 0 };
     const sceneGraph = [group, child];
 
     const marquee = { x: 140, y: 110, width: 30, height: 30 };
